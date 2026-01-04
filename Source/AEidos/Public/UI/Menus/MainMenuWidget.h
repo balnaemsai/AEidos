@@ -6,6 +6,9 @@
 #include "Blueprint/UserWidget.h"
 #include "MainMenuWidget.generated.h"
 
+class UButton;
+class UTextBlock;
+
 /**
  * 
  */
@@ -13,5 +16,33 @@ UCLASS()
 class AEIDOS_API UMainMenuWidget : public UUserWidget
 {
 	GENERATED_BODY()
+
+	protected:
+	virtual void NativeOnInitialized() override;
+
+	UPROPERTY(meta = (BindWidget))
+	UButton* BtnNewGame;
+	UPROPERTY(meta = (BindWidget))
+	UButton* BtnLoadGame;
+	UPROPERTY(meta = (BindWidget))
+	UButton* BtnOptions;
+	UPROPERTY(meta = (BindWidget))
+	UButton* BtnQuit;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* TxtStatus;
+
+	private:
+	UFUNCTION()
+	void OnClickNewGame();
+	UFUNCTION()
+	void OnClickLoadGame();
+	UFUNCTION()
+	void OnClickOptions();
+	UFUNCTION()
+	void OnClickQuit();
+
+	void SetStatus(const FString& msg);
+	
 	
 };

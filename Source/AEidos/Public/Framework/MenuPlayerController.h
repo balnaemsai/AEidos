@@ -13,5 +13,18 @@ UCLASS()
 class AEIDOS_API AMenuPlayerController : public APlayerController
 {
 	GENERATED_BODY()
+
+	protected:
+	virtual void BeginPlay() override;
+
+	private:
+
+	void ShowMainMenu();
+
+	UPROPERTY(EditDefaultsOnly)
+	TSubclassOf<UUserWidget> MainMenuWidgetClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UUserWidget> MainMenuWidget;
 	
 };
