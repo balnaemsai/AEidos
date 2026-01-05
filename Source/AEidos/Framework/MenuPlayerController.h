@@ -14,15 +14,26 @@ class AEIDOS_API AMenuPlayerController : public APlayerController
 {
 	GENERATED_BODY()
 
-	protected:
-	virtual void BeginPlay() override;
-
-	private:
-
-	void ShowMainMenu();
+public:
 
 	UPROPERTY(EditDefaultsOnly)
 	TSubclassOf<UUserWidget> MainMenuWidgetClass;
+
+	UFUNCTION(BlueprintCallable)
+	void ShowMainMenu();
+
+	void RequestNewGame();
+	void RequestLoadGame(const FString& SlotName, int32 UserIndex);
+
+protected:
+	
+	virtual void BeginPlay() override;
+
+private:
+
+	void OpenGameMap();
+
+	static constexpr const TCHAR* GameMapName = TEXT("GameMap");
 
 	UPROPERTY(Transient)
 	TObjectPtr<UUserWidget> MainMenuWidget;

@@ -2,6 +2,9 @@
 
 
 #include "Framework/MenuPlayerController.h"
+#include "UI/Menus/MainMenuWidget.h"
+#include "Kismet/GameplayStatics.h"
+#include "Save/GIS_SaveLoad.h"
 #include "Blueprint/UserWidget.h"
 
 void AMenuPlayerController::BeginPlay()
@@ -30,4 +33,50 @@ void AMenuPlayerController::ShowMainMenu()
 	SetIgnoreLookInput(true);
 	SetIgnoreMoveInput(true);
 }
+
+void AMenuPlayerController::RequestNewGame()
+{
+	UGameInstance* GI = GetGameInstance();
+	if (!GI)
+	{
+		return;
+	}
+
+	UGIS_SaveLoad* SL = GI->GetSubsystem<UGIS_SaveLoad>();
+	if (!SL)
+	{
+		return;
+	}
+
+	SL->ClearPendingSnapshot();
+	SL->BuildNewGameSnapshotIfNeeded(GameMapName);
+
+	OpenGameMap();
+}
+
+void AMenuPlayerController::RequestLoadGame(const FString& SlotName, int32 UserIndex)
+{
+	UGameInstance* GI = GetGameInstance();
+	if (!GI)
+	{
+		return;
+	}
+
+	UGIS_SaveLoad* SL = GI->GetSubsystem<UGIS_SaveLoad>();
+	if (!SL)
+	{
+		return;
+	}
+	
+	const bool bOk = SL->LoadFromSlotToPending(SlotName, UserIndex);
+
+	OpenGameMap();
+}
+
+void AMenuPlayerController::OpenGameMap()
+{
+	UGameplayStatics::OpenLevel(this, FName(GameMapName));
+}
+
+
 

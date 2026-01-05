@@ -37,6 +37,7 @@ void UWS_WorldBootstrap::Initialize(FSubsystemCollectionBase& Collection)
 
 	CachedWorld = GetWorld();
 	bBootstrapScheduled = false;
+	bBootstrapping = false;
 	bBootstrapped = false;
 }
 
@@ -51,6 +52,8 @@ void UWS_WorldBootstrap::OnWorldBeginPlay(UWorld& InWorld)
 	Super::OnWorldBeginPlay(InWorld);
 
 	CachedWorld = &InWorld;
+
+	UE_LOG(LogWorldBootstrap, Log, TEXT("[WorldBootstrap] OnWorldBeginPlay. Map=%s"), *InWorld.GetMapName());
 	
 	if (!IsGameWorld(&InWorld))
 	{
@@ -91,7 +94,7 @@ bool UWS_WorldBootstrap::IsGameWorld(const UWorld* World) const
 
 void UWS_WorldBootstrap::ScheduleBootstrapNextTick()
 {
-	if (bBootstrapped || bBootstrapScheduled)
+	if (bBootstrapped || bBootstrapping || bBootstrapScheduled)
 		return;
 
 	UWorld* World = CachedWorld.Get();
@@ -105,7 +108,7 @@ void UWS_WorldBootstrap::ScheduleBootstrapNextTick()
 
 void UWS_WorldBootstrap::BeginBootstrap()
 {
-	if (bBootstrapped)
+	if (bBootstrapped || bBootstrapping)
 		return;
 
 	UWorld* World = CachedWorld.Get();
@@ -118,7 +121,7 @@ void UWS_WorldBootstrap::BeginBootstrap()
 		return;
 	}
 
-	bBootstrapped = true;
+	bBootstrapping = true;
 
 	UE_LOG(LogWorldBootstrap, Log, TEXT("[WorldBootstrap] BeginBootstrap START. Map=%s"), *World->GetMapName());
 
@@ -129,51 +132,82 @@ void UWS_WorldBootstrap::BeginBootstrap()
 		return;
 	}
 	
-	if (UGIS_DataRegistry* GIS_DataRegistry = GI->GetSubsystem<UGIS_DataRegistry>())
+	if (UGIS_DataRegistry* DR1 = GI->GetSubsystem<UGIS_DataRegistry>())
 	{
-		//GIS_DataRegistry->EnsureReady(); 
-	}
-	
-	if (UGIS_SaveLoad* GIS_SaveLoad = GI->GetSubsystem<UGIS_SaveLoad>())
-	{
-		/*
-		if (GIS_SaveLoad->HasPendingSnapshot())
+		DR1->EnsureReady([this](bool bOk)
 		{
-			UE_LOG(LogWorldBootstrap, Log, TEXT("[WorldBootstrap] Applying PendingSnapshot..."));
-			GIS_SaveLoad->ApplyPendingSnapshotToWorld(*World);
-		}
-		else
-		{
-			UE_LOG(LogWorldBootstrap, Log, TEXT("[WorldBootstrap] No PendingSnapshot. Build NewGame snapshot."));
-			GIS_SaveLoad->BuildNewGameSnapshotIfNeeded();
-			GIS_SaveLoad->ApplyPendingSnapshotToWorld(*World);
-		}
-		*/
+			ContinueBootstrapAfterDataRegistryReady(bOk);
+		}); 
 	}
-	
-	UWS_SimulationOrchestrator* WS_Orch = World->GetSubsystem<UWS_SimulationOrchestrator>();
-	if (!WS_Orch)
+}
+
+void UWS_WorldBootstrap::ContinueBootstrapAfterDataRegistryReady(bool bOk)
+{
+	UWorld* World = CachedWorld.Get();
+	if (!World)
 	{
-		UE_LOG(LogWorldBootstrap, Error, TEXT("[WorldBootstrap] WS_SimulationOrchestrator missing. Cannot start main loop."));
+		bBootstrapping = false;
 		return;
 	}
 
-	/*
-	WS_Orch->StartMainLoop(); 
-	WS_Orch->BroadcastWorldReady(); 
-
-	if (UGIS_UIRouter* GIS_UIRouter = GI->GetSubsystem<UGIS_UIRouter>())
+	UGameInstance* GI = World->GetGameInstance();
+	if (!GI)
 	{
-		GIS_UIRouter->RequestShowInGameHUD();
-		GIS_UIRouter->SetUIStateReady();
+		bBootstrapping = false;
+		return;
+	}
+
+	if (!bOk)
+	{
+		UGIS_DataRegistry* DR = GI->GetSubsystem<UGIS_DataRegistry>();
+		const FString Reason = DR ? DR->GetNotReadyReason() : TEXT("Unknown");
+		UE_LOG(LogWorldBootstrap, Error, TEXT("[WorldBootstrap] DataRegistry not ready: %s"), *Reason);
+		
+		bBootstrapping = false;
+		return;
+	}
+
+	UE_LOG(LogWorldBootstrap, Log, TEXT("[WorldBootstrap] DataRegistry READY. Continue..."));
+	
+	if (UGIS_SaveLoad* SL = GI->GetSubsystem<UGIS_SaveLoad>())
+	{
+		SL->ApplyPendingSnapshotToWorld(*World);
+	}
+
+	UWS_SimulationOrchestrator* Orch = World->GetSubsystem<UWS_SimulationOrchestrator>();
+	if (!Orch)
+	{
+		UE_LOG(LogWorldBootstrap, Error, TEXT("[WorldBootstrap] WS_SimulationOrchestrator missing. Cannot start main loop."));
+		bBootstrapping = false;
+		return;
+	}
+
+	if (UWS_SettlementSpace* SS = World->GetSubsystem<UWS_SettlementSpace>())
+	{
+		Orch->RegisterSimSystem(SS);
 	}
 	
-	// APlayerController* PC = World->GetFirstPlayerController();
-	// if (AEidosPlayerController* EPC = Cast<AEidosPlayerController>(PC))
-	// {
-	//     EPC->SetControlPageFromLoadedState();
-	// }
+	Orch->StartMainLoop();
+
+	// 4) InGame HUD로 전환 (선택)
+	/*
+	if (UGIS_UIRouter* UIR = GI->GetSubsystem<UGIS_UIRouter>())
+	{
+		UIR->RequestShowInGameHUD();
+		UIR->SetUIStateReady();
+	}
 	*/
 
-	UE_LOG(LogWorldBootstrap, Log, TEXT("[WorldBootstrap] BeginBootstrap DONE."));
+	FinalizeBootstrap();
 }
+
+void UWS_WorldBootstrap::FinalizeBootstrap()
+{
+	bBootstrapping = false;
+	bBootstrapped = true;
+
+	UWorld* World = CachedWorld.Get();
+	const FString MapName = World ? World->GetMapName() : TEXT("NULL");
+	UE_LOG(LogWorldBootstrap, Log, TEXT("[WorldBootstrap] BeginBootstrap DONE. Map=%s"), *MapName);
+}
+

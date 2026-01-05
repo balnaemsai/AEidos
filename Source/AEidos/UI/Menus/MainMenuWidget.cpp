@@ -4,6 +4,8 @@
 #include "UI/Menus/MainMenuWidget.h"
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
+#include "Components/Image.h"
+#include "Framework/MenuPlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Save/GIS_SaveLoad.h"
@@ -18,77 +20,57 @@ void UMainMenuWidget::NativeOnInitialized()
 	if (BtnOptions)  BtnOptions->OnClicked.AddDynamic(this, &UMainMenuWidget::OnClickOptions);
 	if (BtnQuit)     BtnQuit->OnClicked.AddDynamic(this, &UMainMenuWidget::OnClickQuit);
 
-	SetStatus(TEXT("Ready"));
+	SetBusy(false, TEXT("Ready"));
 }
 
 void UMainMenuWidget::OnClickNewGame()
 {
-	SetStatus(TEXT("Preparing New Game..."));
+	SetBusy(true, TEXT("Preparing New Game..."));
 
-	if (UGameInstance* GI = GetGameInstance())
+	if (AMenuPlayerController* MPC = Cast<AMenuPlayerController>(GetOwningPlayer()))
 	{
-		if (UGIS_SaveLoad* SaveLoad = GI->GetSubsystem<UGIS_SaveLoad>())
-		{
-			// 최소 구현: “새 게임 스냅샷”만 준비
-			/*
-			const bool bOk = SaveLoad->PrepareNewGameSnapshot(); // 너가 만들 함수
-			if (!bOk)
-			{
-				SetStatus(TEXT("New Game failed."));
-				return;
-			}
-			*/
-
-			SetStatus(TEXT("Opening GameMap..."));
-			UGameplayStatics::OpenLevel(this, FName("GameMap"));
-			return;
-		}
+		MPC->RequestNewGame();
+		return;
 	}
 
-	SetStatus(TEXT("SaveLoad subsystem missing."));
+	SetBusy(false, TEXT("Error: Invalid Controller"));
 }
 
 void UMainMenuWidget::OnClickLoadGame()
 {
-	SetStatus(TEXT("Preparing Load..."));
+	SetBusy(true, TEXT("Preparing Load..."));
 
-	if (UGameInstance* GI = GetGameInstance())
+	if (AMenuPlayerController* MPC = Cast<AMenuPlayerController>(GetOwningPlayer()))
 	{
-		if (UGIS_SaveLoad* SaveLoad = GI->GetSubsystem<UGIS_SaveLoad>())
-		{
-			/*
-			const bool bOk = SaveLoad->PrepareLoadSnapshot_Last(); // 너가 만들 함수
-			if (!bOk)
-			{
-				SetStatus(TEXT("Load failed."));
-				return;
-			}
-			*/
-
-			SetStatus(TEXT("Opening GameMap..."));
-			UGameplayStatics::OpenLevel(this, FName("GameMap"));
-			return;
-		}
+		MPC->RequestLoadGame(TEXT("Slot0"), 0);
+		return;
 	}
 
-	SetStatus(TEXT("SaveLoad subsystem missing."));
+	SetBusy(false, TEXT("Error: invalid controller"));
 }
 
 void UMainMenuWidget::OnClickOptions()
 {
-	SetStatus(TEXT("Options (TODO)"));
+	SetBusy(false, TEXT("Options (TODO)"));
 }
 
 void UMainMenuWidget::OnClickQuit()
 {
-	UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, true);
+	UKismetSystemLibrary::QuitGame(this, GetOwningPlayer(), EQuitPreference::Quit, true);
 }
 
-void UMainMenuWidget::SetStatus(const FString& Msg)
+void UMainMenuWidget::SetBusy(bool bBusy, const FString& StatusText)
 {
+	if (LoadingDim)
+	{
+		LoadingDim->SetVisibility(bBusy ? ESlateVisibility::Visible : ESlateVisibility::Hidden);
+	}
 	if (TxtStatus)
 	{
-		TxtStatus->SetText(FText::FromString(Msg));
+		TxtStatus->SetText(FText::FromString(StatusText));
 	}
+	if (BtnNewGame) BtnNewGame->SetIsEnabled(!bBusy);
+	if (BtnLoadGame) BtnLoadGame->SetIsEnabled(!bBusy);
+	if (BtnQuit) BtnQuit->SetIsEnabled(!bBusy);
 }
 

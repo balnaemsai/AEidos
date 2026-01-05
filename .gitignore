@@ -73,3 +73,10 @@ Plugins/**/Intermediate/*
 
 # Cache files for the editor to use
 DerivedDataCache/*
+
+# Rider / IntelliJ IDEA
+.idea/
+*.iml
+
+# Rider workspace (절대 커밋 금지)
+.idea/**/workspace.xml

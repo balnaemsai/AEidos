@@ -8,6 +8,7 @@
 
 class UButton;
 class UTextBlock;
+class UImage;
 
 /**
  * 
@@ -31,6 +32,8 @@ class AEIDOS_API UMainMenuWidget : public UUserWidget
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	UTextBlock* TxtStatus;
+	UPROPERTY(meta = (BindWidgetOptional))
+	UImage* LoadingDim;
 
 	private:
 	UFUNCTION()
@@ -42,7 +45,7 @@ class AEIDOS_API UMainMenuWidget : public UUserWidget
 	UFUNCTION()
 	void OnClickQuit();
 
-	void SetStatus(const FString& msg);
+	void SetBusy(bool bBusy, const FString& StatusText);
 	
 	
 };

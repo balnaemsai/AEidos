@@ -4,8 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
-#include "Engine/DataTable.h"
+#include "Engine/StreamableManager.h"
 #include "GIS_DataRegistry.generated.h"
+
+class UEidosDataRegistryConfig;
+class UEidosDataRegistrySettings;
+
+DECLARE_LOG_CATEGORY_EXTERN(LogDataRegistry, Log, All);
 
 /**
  * 
@@ -16,24 +21,45 @@ class AEIDOS_API UGIS_DataRegistry : public UGameInstanceSubsystem
 	GENERATED_BODY()
 	
 	public:
-	/*
-	virtual void Initalize(FSubsystemCollectionBase* Collection) override;
+	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 	
 	bool IsReady() const {return bReady;}
 	bool IsLoading() const {return bLoading;}
+	const FString& GetNotReadyReason() const {return NotReadyReason;}
 	
-	void EnsureReady(TFunction<void(bool)> OnReady);
-	
-	UDataTable* GetResourceTable() const {return ResourceTable;}
-	UDataTable* GetBuildingTable() const {return BuildingTable;}
-	UDataTable* GetDungeonTable() const {return DungeonTable;}
-	
-	FString GetNotReadyReason() const {return NotReadyReason;}
-	
+	void EnsureReady(TFunction<void(bool bSuccess)> OnReady);
+
+	bool EnsureReadySync();
+
+	UDataTable* FindDataTableByName(const FName TableName) const;
+
 	private:
-	UPROPERTY(EditDefaultsOnly)
-	
-	*/
+	TSoftObjectPtr<UEidosDataRegistryConfig> ConfigRef;
+	UPROPERTY(Transient)
+	TObjectPtr<UEidosDataRegistryConfig> LoadedConfig = nullptr;
+
+	bool bReady = false;
+	bool bLoading = false;
+	FString NotReadyReason;
+
+	UPROPERTY(Transient)
+	TMap<FName, TObjectPtr<UDataTable>> LoadedTables;
+
+	TArray<TFunction<void(bool)>> PendingCallbacks;
+
+	TSharedPtr<FStreamableHandle> ActiveHandle;
+	FStreamableManager& GetStreamable() const;
+
+	void BeginLoad_ConfigThenAssets();
+	void OnConfigLoaded();
+	void BeginLoad_RequiredAssets();
+	void OnAssetsLoaded();
+
+	bool ValidateConfig();
+	bool CacheLoadedAssets();
+	void BroadcastReady(bool bSuccess);
+
+	const UEidosDataRegistrySettings* GetSettings() const;
 	
 };

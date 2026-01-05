@@ -20,6 +20,7 @@ public:
 	virtual void OnWorldBeginPlay(UWorld& InWorld) override;
 
 	bool IsGameWorld(const UWorld* World) const;
+	UFUNCTION()
 	void BeginBootstrap();
 	void ScheduleBootstrapNextTick();
 
@@ -28,6 +29,10 @@ private:
 	TObjectPtr<UWorld> CachedWorld = nullptr;
 
 	bool bBootstrapScheduled = false;
+	bool bBootstrapping = false;
 	bool bBootstrapped = false;
+
+	void ContinueBootstrapAfterDataRegistryReady(bool bOk);
+	void FinalizeBootstrap();
 	
 };
