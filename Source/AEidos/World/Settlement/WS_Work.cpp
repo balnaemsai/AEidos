@@ -17,6 +17,7 @@ void UWS_Work::SimPlan_Implementation(USimCommandBuffer* CommandBuffer, float Fi
 		ProductionAccumulator -= (float)ProduceNow;
 		PlannedDeltaInt += ProduceNow;
 	}
+	UE_LOG(LogTemp, Log, TEXT("[Work] Plan: Acc=%.3f"), ProductionAccumulator);
 }
 
 void UWS_Work::SimCommit_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds)
@@ -43,6 +44,7 @@ void UWS_Work::SimCommit_Implementation(USimCommandBuffer* CommandBuffer, float 
 		}
 	});
 
+	UE_LOG(LogTemp, Log, TEXT("[Work] Commit: +%d"), PlannedDeltaInt);
 	PlannedDeltaInt = 0;
 }
 

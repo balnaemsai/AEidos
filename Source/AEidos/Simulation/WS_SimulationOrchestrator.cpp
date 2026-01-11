@@ -186,7 +186,7 @@ void UWS_SimulationOrchestrator::StepFixedTick(float FixedDeltaSeconds)
 	FixedSimulatedTimeSec += FixedDeltaSeconds;
 
 	// N틱마다 출력 (기본: 24틱=1초마다 한 번)
-	/*
+	
 	if (DebugLogEveryNTicks > 0 && (FixedTickCount % DebugLogEveryNTicks) == 0)
 	{
 		UE_LOG(LogSimOrch, Log,
@@ -197,7 +197,7 @@ void UWS_SimulationOrchestrator::StepFixedTick(float FixedDeltaSeconds)
 			Accumulator,
 			CachedSystems.Num());
 	}
-	*/
+	
 }
 
 

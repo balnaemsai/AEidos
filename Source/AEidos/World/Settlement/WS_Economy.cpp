@@ -14,13 +14,22 @@ int32 UWS_Economy::GetAmount(FName ResourceId) const
 
 void UWS_Economy::AddAmount(FName ResourceId, int32 Delta)
 {
+	if (ResourceId.IsNone())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Economy] AddAmount_Internal called with None ResourceId"));
+		return;
+	}
+	
 	int32& V = Wallet.Amounts.FindOrAdd(ResourceId);
 	V += Delta;
 	bDirty = true;
+
+	UE_LOG(LogTemp, Log, TEXT("[Economy] %s += %d (Total=%d)"), *ResourceId.ToString(), Delta, V);
 }
 
 void UWS_Economy::SimPost_Implementation(float FixedDeltaSeconds)
 {
+	UE_LOG(LogTemp, Log, TEXT("[Economy] Post: Broadcast OnEconomyChanged"));
 	if (bDirty)
 	{
 		bDirty = false;

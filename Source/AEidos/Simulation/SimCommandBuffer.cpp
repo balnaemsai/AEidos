@@ -10,6 +10,7 @@ void USimCommandBuffer::Enqueue(TFunction<void()>&& cmd)
 
 void USimCommandBuffer::Flush()
 {
+	UE_LOG(LogTemp, Log, TEXT("[CmdBuf] Flush: %d commands"), Commands.Num());
 	for (TFunction<void()>& Cmd : Commands)
 	{
 		if (Cmd)
