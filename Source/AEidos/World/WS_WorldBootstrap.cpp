@@ -13,10 +13,10 @@
 #include "Simulation/WS_SimulationOrchestrator.h"
 #include "World/Settlement/WS_SettlementSpace.h"
 /*
-#include "World/Settlement/WS_Economy.h"
+
 #include "World/Settlement/WS_Building.h"
 #include "World/Settlement/WS_Population.h"
-#include "World/Settlement/WS_Work.h"
+
 #include "World/Settlement/WS_Research.h"
 #include "World/Settlement/WS_PortalDirector.h"
 #include "World/Settlement/WS_RaidDirector.h"
@@ -25,6 +25,8 @@
 #include "GameFramework/GameModeBase.h"
 #include "Framework/EidosGameMode.h"
 #include "Framework/MenuGameMode.h"
+#include "World/Settlement/WS_Work.h"
+#include "World/Settlement/WS_Economy.h"
 
 // 로그 카테고리(있으면 교체)
 DEFINE_LOG_CATEGORY_STATIC(LogWorldBootstrap, Log, All);
@@ -186,6 +188,9 @@ void UWS_WorldBootstrap::ContinueBootstrapAfterDataRegistryReady(bool bOk)
 	{
 		Orch->RegisterSimSystem(SS);
 	}
+
+	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Work>());
+	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Economy>());
 	
 	Orch->StartMainLoop();
 

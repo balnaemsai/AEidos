@@ -10,11 +10,11 @@ void USimCommandBuffer::Enqueue(TFunction<void()>&& cmd)
 
 void USimCommandBuffer::Flush()
 {
-	for (TFunction<void()>& cmd : Commands)
+	for (TFunction<void()>& Cmd : Commands)
 	{
-		if (cmd)
+		if (Cmd)
 		{
-			cmd();
+			Cmd();
 		}
 	}
 	Commands.Reset();

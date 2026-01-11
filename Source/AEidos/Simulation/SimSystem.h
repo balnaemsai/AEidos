@@ -25,6 +25,9 @@ public:
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category="Eidos|Simulation")
 	void SimPlan(USimCommandBuffer* Cmd, float FixedDeltaSeconds);
 
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category="Sim")
+	void SimCommit(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds);
+
 	// Post: Commit 이후 후처리
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category="Eidos|Simulation")
 	void SimPost(float FixedDeltaSeconds);

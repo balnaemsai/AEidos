@@ -163,7 +163,14 @@ void UWS_SimulationOrchestrator::StepFixedTick(float FixedDeltaSeconds)
 		}
 	}
 
-	// -------- COMMIT --------
+	for (TWeakObjectPtr<UObject>& W : CachedSystems)
+	{
+		if (UObject* Sys = W.Get())
+		{
+			ISimSystem::Execute_SimCommit(Sys, CommandBuffer, FixedDeltaSeconds);
+		}
+	}
+	
 	CommandBuffer->Flush();
 
 	// -------- POST --------
