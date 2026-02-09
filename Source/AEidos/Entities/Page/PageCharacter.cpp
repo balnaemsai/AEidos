@@ -2,27 +2,44 @@
 
 
 #include "Entities/Page/PageCharacter.h"
+#include "Entities/Page/Components/StatsComponent.h"
+#include "EnhancedInputComponent.h"
+#include "EnhancedInputSubsystems.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/PlayerController.h"
 
 // Sets default values
 APageCharacter::APageCharacter()
 {
- 	// Set this character to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
+
+	Stats = CreateDefaultSubobject<UStatsComponent>(TEXT("StatsComponent"));
+	
+	bUseControllerRotationYaw = false;
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->bOrientRotationToMovement = true;
+		MoveComp->RotationRate = FRotator(0.f, 540.f, 0.f);
+		MoveComp->MaxWalkSpeed = 450.f;
+	}
 
 }
 
-// Called when the game starts or when spawned
 void APageCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-	
-}
 
-// Called every frame
-void APageCharacter::Tick(float DeltaTime)
-{
-	Super::Tick(DeltaTime);
-
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		if (ULocalPlayer* LP = PC->GetLocalPlayer())
+		{
+			if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
+				LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
+			{
+				Subsystem->AddMappingContext(PageInputMappingContext, 0);
+			}
+		}
+	}
 }
 
 // Called to bind functionality to input
@@ -30,5 +47,23 @@ void APageCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
+	UEnhancedInputComponent* EIComp = CastChecked<UEnhancedInputComponent>(PlayerInputComponent);
+	
+	EIComp->BindAction(MoveAction, ETriggerEvent::Triggered, this, &APageCharacter::HandleMove);
 }
 
+void APageCharacter::HandleMove(const FInputActionValue& Value)
+{
+	const FVector2D MoveInput = Value.Get<FVector2D>();
+
+	if (MoveInput.IsNearlyZero())
+		return;
+
+	const FRotator YawRot(0.f, Controller->GetControlRotation().Yaw, 0.f);
+
+	const FVector Forward = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
+	const FVector Right   = FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y);
+
+	AddMovementInput(Forward, MoveInput.Y);
+	AddMovementInput(Right,   MoveInput.X);
+}

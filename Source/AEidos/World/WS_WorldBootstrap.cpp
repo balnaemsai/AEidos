@@ -194,15 +194,6 @@ void UWS_WorldBootstrap::ContinueBootstrapAfterDataRegistryReady(bool bOk)
 	
 	Orch->StartMainLoop();
 
-	// 4) InGame HUD로 전환 (선택)
-	/*
-	if (UGIS_UIRouter* UIR = GI->GetSubsystem<UGIS_UIRouter>())
-	{
-		UIR->RequestShowInGameHUD();
-		UIR->SetUIStateReady();
-	}
-	*/
-
 	FinalizeBootstrap();
 }
 

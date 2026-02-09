@@ -125,6 +125,8 @@ void UWS_SimulationOrchestrator::BuildSystemCacheIfNeeded()
 	bCacheDirty = false;
 }
 
+//Tick마다 현실 시간(DeltaTime)을 Accumulator에 더하고, 이것이 정해준 FixedTick(1/24초)를 넘을 경우 게임 시간 1초가 지났다고 판정하며 StepFixedTick()을 한번 호출
+//게임 틱이 느려져서 Tick 한번당 게임 시간 2초 이상이 흘러도 while문 내에서 여러번 호출해주기때문에 ㄱㅊ
 void UWS_SimulationOrchestrator::Tick(float DeltaTime)
 {
 	if (State != ESimOrchState::Running)

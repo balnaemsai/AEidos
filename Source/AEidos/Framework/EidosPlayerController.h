@@ -13,5 +13,10 @@ UCLASS()
 class AEIDOS_API AEidosPlayerController : public APlayerController
 {
 	GENERATED_BODY()
+
+public:
+	virtual void BeginPlay() override;
+
+	void HandleWorldSimReady();
 	
 };

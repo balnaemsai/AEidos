@@ -6,6 +6,19 @@
 #include "Components/ActorComponent.h"
 #include "StatsComponent.generated.h"
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnStatsChanged);
+
+USTRUCT(BlueprintType)
+struct FPageStatsDelta
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float HungerDelta = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float FatigueDelta = 0.f;
+};
 
 UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
 class AEIDOS_API UStatsComponent : public UActorComponent
@@ -16,13 +29,25 @@ public:
 	// Sets default values for this component's properties
 	UStatsComponent();
 
+	UFUNCTION(BlueprintCallable, Category="Stats")
+	float GetHunger() const { return Hunger; }
+
+	UFUNCTION(BlueprintCallable, Category="Stats")
+	float GetFatigue() const { return Fatigue; }
+
+	// --- Mutations (Commit에서만 호출하는 걸 권장) ---
+	UFUNCTION(BlueprintCallable, Category="Stats")
+	void ApplyDelta(const FPageStatsDelta& Delta);
+
+	UPROPERTY(BlueprintAssignable)
+	FOnStatsChanged OnStatsChanged;
+
 protected:
-	// Called when the game starts
-	virtual void BeginPlay() override;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Stats", meta=(ClampMin="0.0", ClampMax="100.0"))
+	float Hunger = 0.f;
 
-public:	
-	// Called every frame
-	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Stats", meta=(ClampMin="0.0", ClampMax="100.0"))
+	float Fatigue = 0.f;
 
-		
+	void ClampAll();
 };

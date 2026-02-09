@@ -9,7 +9,7 @@
 void UWS_Work::SimPlan_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds)
 {
 	// 1초당 생산량을 FixedDelta에 따라 분배
-	ProductionAccumulator += Producer.OutputPerGameSecond * FixedDeltaSeconds;
+	ProductionAccumulator += Producer.OutputPerGameSecond;
 
 	const int32 ProduceNow = FMath::FloorToInt(ProductionAccumulator);
 	if (ProduceNow > 0)

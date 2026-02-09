@@ -4,7 +4,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "InputActionValue.h"
 #include "PageCharacter.generated.h"
+
+class UStatsComponent;
+class UInputMappingContext;
+class UInputAction;
 
 UCLASS()
 class AEIDOS_API APageCharacter : public ACharacter
@@ -15,15 +20,22 @@ public:
 	// Sets default values for this character's properties
 	APageCharacter();
 
+	UFUNCTION(BlueprintCallable, Category="Page")
+	UStatsComponent* GetStats() const { return Stats; }
+
 protected:
-	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
-
-public:	
-	// Called every frame
-	virtual void Tick(float DeltaTime) override;
-
-	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+	
+	void HandleMove(const FInputActionValue& Value);
+	
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components")
+	UStatsComponent* Stats;
+	
+	UPROPERTY(EditDefaultsOnly, Category="Input")
+	UInputMappingContext* PageInputMappingContext;
 
+	UPROPERTY(EditDefaultsOnly, Category="Input")
+	UInputAction* MoveAction;
+	
 };
