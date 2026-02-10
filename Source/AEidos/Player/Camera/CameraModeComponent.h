@@ -6,6 +6,17 @@
 #include "Components/ActorComponent.h"
 #include "CameraModeComponent.generated.h"
 
+class AEidosPlayerController;
+class APageCharacter;
+class AFreeCamPawn;
+class UInputMappingContext;
+
+UENUM()
+enum class ECameraControlMode : uint8
+{
+	FollowPage,
+	FreeCam
+};
 
 UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
 class AEIDOS_API UCameraModeComponent : public UActorComponent
@@ -16,13 +27,37 @@ public:
 	// Sets default values for this component's properties
 	UCameraModeComponent();
 
+	void InitializeForController(AEidosPlayerController* InPC);
+
+	// 외부(컨트롤러/UI)에서 선택 페이지 바꾸기
+	void SetSelectedPage(APageCharacter* NewPage);
+
+	// 단축키 핸들러
+	void ToggleViewMode();      // V
+	void ToggleControlMode();   // Y
+
+	ECameraControlMode GetControlMode() const { return ControlMode; }
+
 protected:
-	// Called when the game starts
-	virtual void BeginPlay() override;
+	UPROPERTY()
+	TWeakObjectPtr<AEidosPlayerController> PC;
 
-public:	
-	// Called every frame
-	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+	UPROPERTY()
+	TWeakObjectPtr<APageCharacter> SelectedPage;
 
-		
+	UPROPERTY()
+	TWeakObjectPtr<AFreeCamPawn> FreeCamPawn;
+
+	UPROPERTY(EditDefaultsOnly, Category="Camera|FreeCam")
+	TSubclassOf<AFreeCamPawn> FreeCamPawnClass;
+
+private:
+	void EnterFollowPage();
+	void EnterFreeCam();
+
+	void AddIMC(UInputMappingContext* IMC, int32 Priority);
+	void RemoveIMC(UInputMappingContext* IMC);
+
+private:
+	ECameraControlMode ControlMode = ECameraControlMode::FollowPage;
 };

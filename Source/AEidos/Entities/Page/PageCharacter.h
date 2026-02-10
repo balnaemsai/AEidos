@@ -10,6 +10,15 @@
 class UStatsComponent;
 class UInputMappingContext;
 class UInputAction;
+class USpringArmComponent;
+class UCameraComponent;
+
+UENUM(BlueprintType)
+enum class EPageViewMode : uint8
+{
+	ThirdPerson,
+	FirstPerson
+};
 
 UCLASS()
 class AEIDOS_API APageCharacter : public ACharacter
@@ -22,6 +31,12 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Page")
 	UStatsComponent* GetStats() const { return Stats; }
+
+	void SetViewMode(EPageViewMode NewMode);
+	void ToggleViewMode();
+	EPageViewMode GetViewMode() const { return ViewMode; }
+
+	UInputMappingContext* GetPageIMC() const { return PageInputMappingContext; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -37,5 +52,17 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category="Input")
 	UInputAction* MoveAction;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
+	USpringArmComponent* SpringArm;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
+	UCameraComponent* ThirdPersonCamera;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
+	UCameraComponent* FirstPersonCamera;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
+	EPageViewMode ViewMode = EPageViewMode::ThirdPerson;
 	
 };

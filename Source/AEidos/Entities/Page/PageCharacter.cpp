@@ -7,6 +7,8 @@
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "Camera/CameraComponent.h"
+#include "GameFramework/SpringArmComponent.h"
 
 // Sets default values
 APageCharacter::APageCharacter()
@@ -23,6 +25,40 @@ APageCharacter::APageCharacter()
 		MoveComp->MaxWalkSpeed = 450.f;
 	}
 
+	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
+	SpringArm->SetupAttachment(GetRootComponent());
+	SpringArm->bUsePawnControlRotation = true;
+
+	// ✅ 기본 쿼터뷰 느낌: 각도/거리
+	SpringArm->TargetArmLength = 700.f;
+	SpringArm->SetRelativeLocation(FVector(0.f, 0.f, 80.f));
+	SpringArm->SetRelativeRotation(FRotator(-45.f, 0.f, 0.f));
+
+	ThirdPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("ThirdPersonCamera"));
+	ThirdPersonCamera->SetupAttachment(SpringArm);
+	ThirdPersonCamera->bUsePawnControlRotation = false;
+
+	FirstPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
+	FirstPersonCamera->SetupAttachment(GetRootComponent());
+	FirstPersonCamera->SetRelativeLocation(FVector(20.f, 0.f, 70.f));
+	FirstPersonCamera->bUsePawnControlRotation = true;
+
+	SetViewMode(EPageViewMode::ThirdPerson);
+
+}
+
+void APageCharacter::SetViewMode(EPageViewMode NewMode)
+{
+	ViewMode = NewMode;
+	const bool bFirst = (ViewMode == EPageViewMode::FirstPerson);
+
+	FirstPersonCamera->SetActive(bFirst);
+	ThirdPersonCamera->SetActive(!bFirst);
+}
+
+void APageCharacter::ToggleViewMode()
+{
+	SetViewMode(ViewMode == EPageViewMode::ThirdPerson ? EPageViewMode::FirstPerson : EPageViewMode::ThirdPerson);
 }
 
 void APageCharacter::BeginPlay()
