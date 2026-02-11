@@ -3,6 +3,9 @@
 
 #include "Entities/Page/PageCharacter.h"
 #include "Entities/Page/Components/StatsComponent.h"
+#include "Framework/EidosPlayerController.h"
+#include "Player/Camera/CameraModeComponent.h"
+
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -25,14 +28,22 @@ APageCharacter::APageCharacter()
 		MoveComp->MaxWalkSpeed = 450.f;
 	}
 
-	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
-	SpringArm->SetupAttachment(GetRootComponent());
-	SpringArm->bUsePawnControlRotation = true;
+	ThirdPersonPivot = CreateDefaultSubobject<USceneComponent>(TEXT("ThirdPersonPivot"));
+	ThirdPersonPivot->SetupAttachment(GetRootComponent());
+	ThirdPersonPivot->SetRelativeLocation(FVector(0.f, 0.f, 80.f));
+	ThirdPersonPivot->SetRelativeRotation(FRotator(-45.f, 0.f, 0.f));
 
-	// ✅ 기본 쿼터뷰 느낌: 각도/거리
+	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
+	SpringArm->SetupAttachment(ThirdPersonPivot);
+	
+	SpringArm->bUsePawnControlRotation = false;
+	SpringArm->bInheritYaw   = true;
+	SpringArm->bInheritPitch = true;
+	SpringArm->bInheritRoll  = false;
+	
 	SpringArm->TargetArmLength = 700.f;
-	SpringArm->SetRelativeLocation(FVector(0.f, 0.f, 80.f));
-	SpringArm->SetRelativeRotation(FRotator(-45.f, 0.f, 0.f));
+	SpringArm->bDoCollisionTest = false; // 원하면 켜도 됨
+	SpringArm->SetRelativeRotation(FRotator::ZeroRotator);
 
 	ThirdPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("ThirdPersonCamera"));
 	ThirdPersonCamera->SetupAttachment(SpringArm);
@@ -64,18 +75,7 @@ void APageCharacter::ToggleViewMode()
 void APageCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-
-	if (APlayerController* PC = Cast<APlayerController>(GetController()))
-	{
-		if (ULocalPlayer* LP = PC->GetLocalPlayer())
-		{
-			if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
-				LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
-			{
-				Subsystem->AddMappingContext(PageInputMappingContext, 0);
-			}
-		}
-	}
+	
 }
 
 // Called to bind functionality to input
@@ -95,11 +95,28 @@ void APageCharacter::HandleMove(const FInputActionValue& Value)
 	if (MoveInput.IsNearlyZero())
 		return;
 
-	const FRotator YawRot(0.f, Controller->GetControlRotation().Yaw, 0.f);
+	AEidosPlayerController* PC = Cast<AEidosPlayerController>(GetController());
 
-	const FVector Forward = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
-	const FVector Right   = FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y);
+	if (ViewMode == EPageViewMode::ThirdPerson)
+	{
+		
+		if (PC && PC->GetCameraMode())
+		{
+			const float Yaw = PC->GetCameraMode()->GetOrbitYawWorldDeg(); // getter 만들기
+			const FRotator YawRot(0.f, Yaw, 0.f);
 
+			const FVector Forward = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
+			const FVector Right   = FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y);
+
+			AddMovementInput(Forward, MoveInput.Y);
+			AddMovementInput(Right,   MoveInput.X);
+			return;
+		}
+	}
+	
+	const FRotator ControlRot(0.f, PC->GetControlRotation().Yaw, 0.f);
+	const FVector Forward = FRotationMatrix(ControlRot).GetUnitAxis(EAxis::X);
+	const FVector Right   = FRotationMatrix(ControlRot).GetUnitAxis(EAxis::Y);
 	AddMovementInput(Forward, MoveInput.Y);
 	AddMovementInput(Right,   MoveInput.X);
 }

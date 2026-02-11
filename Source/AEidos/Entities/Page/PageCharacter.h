@@ -37,6 +37,8 @@ public:
 	EPageViewMode GetViewMode() const { return ViewMode; }
 
 	UInputMappingContext* GetPageIMC() const { return PageInputMappingContext; }
+	USpringArmComponent* GetThirdPersonSpringArm() const { return SpringArm; }
+	USceneComponent* GetThirdPersonPivot() const { return ThirdPersonPivot; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -64,5 +66,8 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
 	EPageViewMode ViewMode = EPageViewMode::ThirdPerson;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera", meta=(AllowPrivateAccess="true"))
+	USceneComponent* ThirdPersonPivot;
 	
 };

@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
 #include "InputActionValue.h"
+#include "Entities/Page/PageCharacter.h"
 #include "FreeCamPawn.generated.h"
 
 class UCameraComponent;
@@ -23,6 +24,10 @@ public:
 	AFreeCamPawn();
 
 	UInputMappingContext* GetFreeCamIMC() const { return FreeCamIMC; }
+	USpringArmComponent* GetThirdPersonSpringArm() const { return SpringArm; }
+	USceneComponent* GetThirdPersonPivot() const { return ThirdPersonPivot; }
+
+	void ApplyViewMode(EPageViewMode Mode);
 
 protected:
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
@@ -45,4 +50,7 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
 	USpringArmComponent* SpringArm;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera", meta=(AllowPrivateAccess="true"))
+	USceneComponent* ThirdPersonPivot;
 };

@@ -25,6 +25,7 @@ public:
 	
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
+	virtual void Tick(float DeltaTime) override;
 
 	void HandleWorldSimReady();
 
@@ -32,6 +33,8 @@ public:
 	void OnToggleControlMode(const FInputActionValue& Value); // Y
 
 	APageCharacter* FindAnyPage() const;
+
+	UCameraModeComponent* GetCameraMode() {return CameraMode;}
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
@@ -50,7 +53,19 @@ protected:
 	UFUNCTION()
 	void OnLook(const FInputActionValue& Value);
 
+	UFUNCTION()
+	void OnOrbitYaw(const FInputActionValue& Value);
+
+	UFUNCTION()
+	void OnZoom(const FInputActionValue& Value);
+
 	UPROPERTY(EditDefaultsOnly, Category="Input")
 	UInputAction* LookAction; // IA_Look
+
+	UPROPERTY(EditDefaultsOnly, Category="Input")
+	UInputAction* IA_OrbitYaw; 
+
+	UPROPERTY(EditDefaultsOnly, Category="Input")
+	UInputAction* IA_Zoom; 
 	
 };
