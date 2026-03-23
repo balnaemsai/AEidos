@@ -176,9 +176,19 @@ void AEidosPlayerController::HandleWorldSimReady()
 void AEidosPlayerController::OnLook(const FInputActionValue& Value)
 {
 	const FVector2D V = Value.Get<FVector2D>();
-	if (V.IsNearlyZero()) return;
-	
-	const EPageViewMode ViewMode = CameraMode ? CameraMode->GetViewMode() : EPageViewMode::ThirdPerson;
+	if (V.IsNearlyZero())
+	{
+		return;
+	}
+
+	if (!IsValid(CameraMode))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PC] OnLook aborted: CameraMode invalid"));
+		return;
+	}
+
+	const EPageViewMode ViewMode = CameraMode->GetViewMode();
+
 	if (ViewMode == EPageViewMode::FirstPerson)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[PC] OnLook Working"));

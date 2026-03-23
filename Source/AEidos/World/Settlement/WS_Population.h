@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "EidosAccessInterface.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "Simulation/SimSystem.h" 
 #include "WS_Population.generated.h"
@@ -14,13 +15,15 @@ class APageCharacter;
  * 
  */
 UCLASS()
-class AEIDOS_API UWS_Population : public UWorldSubsystem, public ISimSystem
+class AEIDOS_API UWS_Population : public UWorldSubsystem, public ISimSystem, public IEidosPopulationAccess
 {
 	GENERATED_BODY()
 
 public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
+
+	//Simsystem 구현
 	
 	virtual int32 GetSimOrder_Implementation() const override;
 	virtual void SimPlan_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds) override;
@@ -30,6 +33,14 @@ public:
 	const TArray<TWeakObjectPtr<APageCharacter>>& GetOwnedPages() const { return CachedPages; }
 
 	void EnsureTestPageSpawned();
+
+	//PopulationAccess 구현
+
+	virtual TArray<int32> GetAllPageIds_Implementation() const override;
+	virtual AActor* GetPageActor_Implementation(int32 PageId) override;
+	virtual bool IsPageAvailable_Implementation(int32 PageId) const override;
+	virtual float ComputeWorkRateMultiplier_Implementation(int32 PageId, FName WorkId) const override;
+	virtual void ApplyWorkCompletionEffects_Implementation(int32 PageId, FName WorkId) override;
 
 protected:
 	UPROPERTY(EditDefaultsOnly, Category="Population|Test")

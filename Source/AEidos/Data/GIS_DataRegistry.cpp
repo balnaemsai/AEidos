@@ -5,7 +5,9 @@
 #include "Engine/AssetManager.h"
 #include "Engine/DataTable.h"
 #include "Settings/EidosDataRegistrySettings.h"
+#include "Entities/Page/Components/SkillDefRow.h"
 #include "Data/EidosDataRegistryConfig.h"
+#include "World/Settlement/WorkDefinitionRow.h"
 
 DEFINE_LOG_CATEGORY(LogDataRegistry);
 
@@ -269,6 +271,12 @@ UDataTable* UGIS_DataRegistry::FindDataTableByName(const FName TableName) const
 	return nullptr;
 }
 
+UDataTable* UGIS_DataRegistry::GetSkillTable() const
+{
+	// DT asset 이름이 DT_Skill 이라는 전제
+	return FindDataTableByName(TEXT("DT_Skill"));
+}
+
 FStreamableManager& UGIS_DataRegistry::GetStreamable() const
 {
 	return UAssetManager::GetStreamableManager();
@@ -278,6 +286,36 @@ const UEidosDataRegistrySettings* UGIS_DataRegistry::GetSettings() const
 {
 	return GetDefault<UEidosDataRegistrySettings>();
 }
+
+const FSkillDefinitionRow* UGIS_DataRegistry::GetSkillDef(FName SkillId) const
+{
+	UDataTable* SkillTable = GetSkillTable();
+	if (!SkillTable || SkillId.IsNone())
+	{
+		return nullptr;
+	}
+
+	return SkillTable->FindRow<FSkillDefinitionRow>(SkillId, TEXT("GetSkillDef"));
+}
+
+UDataTable* UGIS_DataRegistry::GetWorkTable() const
+{
+	// DT asset 이름이 DT_Skill 이라는 전제
+	return FindDataTableByName(TEXT("DT_Work"));
+}
+
+const FWorkDefinitionRow* UGIS_DataRegistry::GetWorkDef(FName WorkId) const
+{
+	UDataTable* WorkTable = GetWorkTable();
+	if (!WorkTable || WorkId.IsNone())
+	{
+		return nullptr;
+	}
+
+	return WorkTable->FindRow<FWorkDefinitionRow>(WorkId, TEXT("GetWorkDef"));
+}
+
+
 
 
 

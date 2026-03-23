@@ -3,6 +3,7 @@
 
 #include "Entities/Page/PageCharacter.h"
 #include "Entities/Page/Components/StatsComponent.h"
+#include "Entities/Page/Components/SkillComponent.h"
 #include "Framework/EidosPlayerController.h"
 #include "Player/Camera/CameraModeComponent.h"
 
@@ -19,6 +20,7 @@ APageCharacter::APageCharacter()
 	PrimaryActorTick.bCanEverTick = true;
 
 	Stats = CreateDefaultSubobject<UStatsComponent>(TEXT("StatsComponent"));
+	Skills = CreateDefaultSubobject<USkillComponent>(TEXT("SkillComponent"));
 	
 	bUseControllerRotationYaw = false;
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
@@ -119,4 +121,83 @@ void APageCharacter::HandleMove(const FInputActionValue& Value)
 	const FVector Right   = FRotationMatrix(ControlRot).GetUnitAxis(EAxis::Y);
 	AddMovementInput(Forward, MoveInput.Y);
 	AddMovementInput(Right,   MoveInput.X);
+}
+
+void APageCharacter::AddWorkSkillXP(FName SkillId, float WorkRatePerSecond, float FixedDeltaSeconds, float XPFactor)
+{
+	if (!Skills || SkillId.IsNone())
+	{
+		return;
+	}
+
+	// Work는 반드시 FixedTick 기준으로 호출
+	Skills->AddContinuousSkillXP(SkillId, WorkRatePerSecond, FixedDeltaSeconds, XPFactor);
+}
+
+void APageCharacter::AddMovementSkillXP(FName SkillId, float DistanceCm, float XPPerCm)
+{
+	if (!Skills || SkillId.IsNone() || DistanceCm <= 0.f || XPPerCm <= 0.f)
+	{
+		return;
+	}
+
+	const float XP = DistanceCm * XPPerCm;
+	Skills->AddSkillXP(SkillId, XP);
+}
+
+void APageCharacter::AddCombatSkillXP(FName SkillId, float FlatXP)
+{
+	if (!Skills || SkillId.IsNone() || FlatXP <= 0.f)
+	{
+		return;
+	}
+
+	Skills->AddDiscreteSkillXP(SkillId, FlatXP);
+}
+
+void APageCharacter::AddActiveSkillXP(FName SkillId, float FlatXP)
+{
+	if (!Skills || SkillId.IsNone() || FlatXP <= 0.f)
+	{
+		return;
+	}
+
+	Skills->AddDiscreteSkillXP(SkillId, FlatXP);
+}
+
+void APageCharacter::GainSkillXP(FName SkillId, float Amount, bool bPropagate)
+{
+	if (!Skills || SkillId.IsNone() || Amount <= 0.f)
+	{
+		return;
+	}
+
+	if (bPropagate)
+	{
+		Skills->AddSkillXP(SkillId, Amount);
+	}
+	else
+	{
+		Skills->AddSkillXP_NoPropagation(SkillId, Amount);
+	}
+}
+
+float APageCharacter::GetSkillMultiplier(FName SkillId) const
+{
+	if (!Skills)
+	{
+		return 1.f;
+	}
+
+	return Skills->GetSkillMultiplier(SkillId);
+}
+
+int32 APageCharacter::GetSkillLevel(FName SkillId) const
+{
+	if (!Skills)
+	{
+		return 0;
+	}
+
+	return Skills->GetSkillLevel(SkillId);
 }

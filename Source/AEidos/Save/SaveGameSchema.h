@@ -1,7 +1,29 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
+#include "World/Settlement/WorkTypes.h"
 #include "SaveGameSchema.generated.h"
+
+USTRUCT(BlueprintType)
+struct FEidosWorkSnapshot
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(BlueprintReadWrite)
+	int32 NextRequestId = 1;
+
+	UPROPERTY(BlueprintReadWrite)
+	int32 NextInstanceId = 1;
+
+	UPROPERTY(BlueprintReadWrite)
+	TArray<FWorkRequest> Queue;
+
+	UPROPERTY(BlueprintReadWrite)
+	TArray<FWorkInstance> ActiveInstances;
+
+	// PageJobs는 런타임 캐시라 저장 안 함(권장)
+};
 
 USTRUCT(BlueprintType)
 struct FEidosWorldSnapshot
@@ -24,6 +46,9 @@ public:
 	UPROPERTY(BlueprintReadWrite)
 	TMap<FName, FString> KV;
 
+	UPROPERTY(BlueprintReadWrite)
+	FEidosWorkSnapshot Work;
+
 	// Helper
 	FString GetKVString(FName Key, const FString& DefaultValue = TEXT("")) const
 	{
@@ -39,3 +64,5 @@ public:
 		KV.Add(Key, Value);
 	}
 };
+
+

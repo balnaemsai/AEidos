@@ -9,6 +9,9 @@
 
 class UEidosDataRegistryConfig;
 class UEidosDataRegistrySettings;
+class UDataTable;
+struct FSkillDefinitionRow;
+struct FWorkDefinitionRow;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogDataRegistry, Log, All);
 
@@ -33,6 +36,12 @@ class AEIDOS_API UGIS_DataRegistry : public UGameInstanceSubsystem
 	bool EnsureReadySync();
 
 	UDataTable* FindDataTableByName(const FName TableName) const;
+
+	UDataTable* GetSkillTable() const;
+	const FSkillDefinitionRow* GetSkillDef(FName SkillId) const;
+
+	UDataTable* GetWorkTable() const;
+	const FWorkDefinitionRow* GetWorkDef(FName SkillId) const;
 
 	private:
 	TSoftObjectPtr<UEidosDataRegistryConfig> ConfigRef;

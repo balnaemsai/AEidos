@@ -7,15 +7,6 @@
 #include "SaveGameSchema.h"
 #include "EidosSaveGame.generated.h"
 
-USTRUCT(BlueprintType)
-struct FSettlementSpaceSaveData
-{
-	GENERATED_BODY()
-
-	// 보유한 청크 좌표 목록 (ChunkX, ChunkY)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
-	TArray<FIntPoint> OwnedChunks;
-};
 
 /**
  * 
@@ -28,8 +19,5 @@ class AEIDOS_API UEidosSaveGame : public USaveGame
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FEidosWorldSnapshot Snapshot;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, SaveGame)
-	FSettlementSpaceSaveData SettlementSpace;
 	
 };

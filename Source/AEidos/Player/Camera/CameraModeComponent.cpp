@@ -278,6 +278,11 @@ void UCameraModeComponent::EnterFreeCam()
 		C->SetViewTargetWithBlend(CamPawn, 0.15f);
 		AddIMC(CamPawn->GetFreeCamIMC(), 1);
 		CamPawn->ApplyViewMode(GetViewMode());
+
+		if (GetViewMode() == EPageViewMode::ThirdPerson)
+		{
+			EnterThirdPerson(true);
+		}
 	}
 }
 

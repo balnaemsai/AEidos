@@ -11,6 +11,7 @@
 
 #include "Entities/Page/PageCharacter.h"
 #include "Entities/Page/Components/StatsComponent.h"
+#include "Entities/Page/Components/SkillComponent.h"
 
 void UWS_Population::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -166,4 +167,97 @@ void UWS_Population::EnsureTestPageSpawned()
 	World->SpawnActor<APageCharacter>(SpawnClass, TestSpawnLocation, FRotator::ZeroRotator, Params);
 	
 	bCacheDirty = true;
+}
+
+TArray<int32> UWS_Population::GetAllPageIds_Implementation() const
+{
+	UWS_Population* MutableThis = const_cast<UWS_Population*>(this);
+	MutableThis->RebuildCacheIfNeeded();
+
+	TArray<int32> Result;
+	Result.Reserve(MutableThis->CachedPages.Num());
+
+	for (int32 i = 0; i < MutableThis->CachedPages.Num(); ++i)
+	{
+		if (MutableThis->CachedPages[i].IsValid())
+		{
+			Result.Add(i);
+		}
+	}
+
+	return Result;
+}
+
+AActor* UWS_Population::GetPageActor_Implementation(int32 PageId)
+{
+	RebuildCacheIfNeeded();
+
+	if (!CachedPages.IsValidIndex(PageId))
+	{
+		return nullptr;
+	}
+
+	return CachedPages[PageId].Get();
+}
+
+bool UWS_Population::IsPageAvailable_Implementation(int32 PageId) const
+{
+	UWS_Population* MutableThis = const_cast<UWS_Population*>(this);
+	MutableThis->RebuildCacheIfNeeded();
+
+	if (!MutableThis->CachedPages.IsValidIndex(PageId))
+	{
+		return false;
+	}
+
+	APageCharacter* Page = MutableThis->CachedPages[PageId].Get();
+	if (!Page)
+	{
+		return false;
+	}
+
+	// TODO:
+	// 나중엔 현재 job 상태, down 상태, 수면 상태 등을 반영
+	return true;
+}
+
+float UWS_Population::ComputeWorkRateMultiplier_Implementation(int32 PageId, FName WorkId) const
+{
+	UWS_Population* MutableThis = const_cast<UWS_Population*>(this);
+	MutableThis->RebuildCacheIfNeeded();
+
+	if (!MutableThis->CachedPages.IsValidIndex(PageId))
+	{
+		return 1.f;
+	}
+
+	APageCharacter* Page = MutableThis->CachedPages[PageId].Get();
+	if (!Page)
+	{
+		return 1.f;
+	}
+
+	// 가장 단순한 현재 구조:
+	// WorkId == SkillId 라고 가정하거나,
+	// 나중에 DT_Work에서 PrimarySkillId를 꺼내 Population 쪽에서 사용하도록 확장 가능
+	return Page->GetSkillMultiplier(WorkId);
+}
+
+void UWS_Population::ApplyWorkCompletionEffects_Implementation(int32 PageId, FName WorkId)
+{
+	RebuildCacheIfNeeded();
+
+	if (!CachedPages.IsValidIndex(PageId))
+	{
+		return;
+	}
+
+	APageCharacter* Page = CachedPages[PageId].Get();
+	if (!Page)
+	{
+		return;
+	}
+
+	// 완료 보너스 XP 같은 게 필요하면 여기서 지급
+	// 현재는 WS_Work의 진행 중 XP 지급 구조가 있으므로 비워둬도 됨
 }

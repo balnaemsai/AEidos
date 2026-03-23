@@ -12,6 +12,8 @@ class UInputMappingContext;
 class UInputAction;
 class USpringArmComponent;
 class UCameraComponent;
+class USceneComponent;
+class USkillComponent;
 
 UENUM(BlueprintType)
 enum class EPageViewMode : uint8
@@ -19,6 +21,28 @@ enum class EPageViewMode : uint8
 	ThirdPerson,
 	FirstPerson
 };
+
+USTRUCT(BlueprintType)
+struct FPageJobState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 InstanceId = INDEX_NONE;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FName WorkId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 Priority = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FVector WorkLocation = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bIsActive = false;
+};
+
 
 UCLASS()
 class AEIDOS_API APageCharacter : public ACharacter
@@ -39,6 +63,37 @@ public:
 	UInputMappingContext* GetPageIMC() const { return PageInputMappingContext; }
 	USpringArmComponent* GetThirdPersonSpringArm() const { return SpringArm; }
 	USceneComponent* GetThirdPersonPivot() const { return ThirdPersonPivot; }
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Components")
+	USkillComponent* Skills;
+
+	UFUNCTION(BlueprintCallable, Category="Skill")
+	void AddWorkSkillXP(FName SkillId, float WorkRatePerSecond, float FixedDeltaSeconds, float XPFactor = 1.f);
+
+	// 이동 거리 기반 XP (Tick에서 내부 호출)
+	UFUNCTION(BlueprintCallable, Category="Skill")
+	void AddMovementSkillXP(FName SkillId, float DistanceCm, float XPPerCm);
+
+	// 전투 시스템에서 호출
+	UFUNCTION(BlueprintCallable, Category="Skill")
+	void AddCombatSkillXP(FName SkillId, float FlatXP);
+
+	// 액티브 스킬 시스템에서 호출
+	UFUNCTION(BlueprintCallable, Category="Skill")
+	void AddActiveSkillXP(FName SkillId, float FlatXP);
+
+	// 외부에서 범용적으로 직접 주고 싶을 때
+	UFUNCTION(BlueprintCallable, Category="Skill")
+	void GainSkillXP(FName SkillId, float Amount, bool bPropagate = true);
+
+	UFUNCTION(BlueprintPure, Category="Skill")
+	float GetSkillMultiplier(FName SkillId) const;
+
+	UFUNCTION(BlueprintPure, Category="Skill")
+	int32 GetSkillLevel(FName SkillId) const;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page")
+	FPageJobState CurrentJobState;
 
 protected:
 	virtual void BeginPlay() override;
@@ -69,5 +124,28 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera", meta=(AllowPrivateAccess="true"))
 	USceneComponent* ThirdPersonPivot;
+
+	void TickMovementSkillGain(float DeltaSeconds);
+
+	// 스킬 정의 기본 세팅
+	void BuildDefaultSkillDefinitions();
+	void BuildDefaultWorkSkillMap();
+
+	// 내부 유틸
+	void EnsureSkillStateExists(FName SkillId);
+	void GrantSkillExp_Internal(FName SkillId, float ExpAmount, bool bAllowRelatedPropagation);
+	float GetTotalExpRequiredToReachLevel(FName SkillId, int32 TargetLevel) const;
+	int32 EvaluateLevelFromTotalExp(FName SkillId, float InTotalExp) const;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Runtime")
+	FVector PreviousWorldLocation = FVector::ZeroVector;
+
+	// cm 당 Running 경험치
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page|Skills|Tuning")
+	float RunningExpPerCm = 0.0025f;
+
+	// 너무 느린 이동은 달리기로 안 친다
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page|Skills|Tuning")
+	float MinimumSpeedForRunningXP = 120.f;
 	
 };
