@@ -462,6 +462,20 @@ void UWS_Work::ApplySnapshot_Implementation(const FEidosWorldSnapshot& Snapshot)
 		NextInstanceId = FMath::Max(NextInstanceId, I.InstanceId + 1);
 }
 
+bool UWS_Work::HasQueuedRequest(int32 RequestId) const
+{
+	return Queue.ContainsByPredicate([&](const FWorkRequest& R)
+	{
+		return R.RequestId == RequestId;
+	});
+}
 
+bool UWS_Work::HasActiveInstanceForRequest(int32 RequestId) const
+{
+	return ActiveInstances.ContainsByPredicate([&](const FWorkInstance& I)
+	{
+		return I.RequestId == RequestId;
+	});
+}
 
 

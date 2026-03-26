@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
-#include "SkillDefRow.generated.h"
+#include "SkillDefinitionRow.generated.h"
 
 USTRUCT(BlueprintType)
 struct FSkillDefinitionRow : public FTableRowBase

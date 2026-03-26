@@ -5,9 +5,10 @@
 #include "Engine/AssetManager.h"
 #include "Engine/DataTable.h"
 #include "Settings/EidosDataRegistrySettings.h"
-#include "Entities/Page/Components/SkillDefRow.h"
+#include "Data/Definitions/SkillDefinitionRow.h"
 #include "Data/EidosDataRegistryConfig.h"
-#include "World/Settlement/WorkDefinitionRow.h"
+#include "Data/Definitions/WorkDefinitionRow.h"
+#include "Data/Definitions/BuildingDefinitionRow.h"
 
 DEFINE_LOG_CATEGORY(LogDataRegistry);
 
@@ -315,6 +316,21 @@ const FWorkDefinitionRow* UGIS_DataRegistry::GetWorkDef(FName WorkId) const
 	return WorkTable->FindRow<FWorkDefinitionRow>(WorkId, TEXT("GetWorkDef"));
 }
 
+UDataTable* UGIS_DataRegistry::GetBuildingTable() const
+{
+	return FindDataTableByName(TEXT("DT_Building"));
+}
+
+const FBuildingDefinitionRow* UGIS_DataRegistry::GetBuildingDef(FName BuildingId) const
+{
+	UDataTable* Table = GetBuildingTable();
+	if (!Table || BuildingId.IsNone())
+	{
+		return nullptr;
+	}
+
+	return Table->FindRow<FBuildingDefinitionRow>(BuildingId, TEXT("GetBuildingDef"));
+}
 
 
 

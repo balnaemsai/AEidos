@@ -12,6 +12,7 @@ class UEidosDataRegistrySettings;
 class UDataTable;
 struct FSkillDefinitionRow;
 struct FWorkDefinitionRow;
+struct FBuildingDefinitionRow;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogDataRegistry, Log, All);
 
@@ -42,6 +43,9 @@ class AEIDOS_API UGIS_DataRegistry : public UGameInstanceSubsystem
 
 	UDataTable* GetWorkTable() const;
 	const FWorkDefinitionRow* GetWorkDef(FName SkillId) const;
+
+	UDataTable* GetBuildingTable() const;
+	const FBuildingDefinitionRow* GetBuildingDef(FName BuildingId) const;
 
 	private:
 	TSoftObjectPtr<UEidosDataRegistryConfig> ConfigRef;

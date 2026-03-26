@@ -27,6 +27,7 @@
 #include "Settlement/WS_Population.h"
 #include "World/Settlement/WS_Work.h"
 #include "World/Settlement/WS_Economy.h"
+#include "World/Settlement/WS_Building.h"
 #include "World/Settlement/WS_Population.h"
 
 // 로그 카테고리(있으면 교체)
@@ -184,15 +185,12 @@ void UWS_WorldBootstrap::ContinueBootstrapAfterDataRegistryReady(bool bOk)
 		bBootstrapping = false;
 		return;
 	}
-
-	if (UWS_SettlementSpace* SS = World->GetSubsystem<UWS_SettlementSpace>())
-	{
-		Orch->RegisterSimSystem(SS);
-	}
-
+	
+	Orch->RegisterSimSystem(World->GetSubsystem<UWS_SettlementSpace>());
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Work>());
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Economy>());
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Population>());
+	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Building>());
 	World->GetSubsystem<UWS_Population>()->EnsureTestPageSpawned(); //테스트용 page 하나 소환 보장
 	
 	Orch->StartMainLoop();

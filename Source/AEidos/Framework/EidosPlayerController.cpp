@@ -86,8 +86,7 @@ void AEidosPlayerController::BeginPlay()
 
 			// ✅ PC가 쓰는 포인터를 "실제로 존재하는 컴포넌트"로 강제 교정
 			CameraMode = Pick;
-
-			// (선택) 나머지는 비활성화해서 혼선을 없앰
+			
 			for (UCameraModeComponent* C : Comps)
 			{
 				if (C && C != Pick)
@@ -167,9 +166,7 @@ void AEidosPlayerController::HandleWorldSimReady()
 		UE_LOG(LogTemp, Warning, TEXT("[PC] Still no PageCharacter on WorldSimReady."));
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[PC] Pawn=%s ViewTarget=%s"),
-	*GetNameSafe(GetPawn()),
-	*GetNameSafe(GetViewTarget()));
+	UE_LOG(LogTemp, Warning, TEXT("[PC] Pawn=%s ViewTarget=%s"), *GetNameSafe(GetPawn()), *GetNameSafe(GetViewTarget()));
 	UE_LOG(LogTemp, Warning, TEXT("[PC] SelectedPage Is %s"), *GetNameSafe(CameraMode->GetSelectedPage()));
 }
 

@@ -2,7 +2,7 @@
 
 
 #include "Entities/Page/Components/SkillComponent.h"
-#include "SkillDefRow.h"
+#include "Data/Definitions/SkillDefinitionRow.h"
 #include "Data/GIS_DataRegistry.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"

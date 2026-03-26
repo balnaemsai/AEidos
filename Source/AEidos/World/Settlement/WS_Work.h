@@ -8,7 +8,7 @@
 #include "Subsystems/WorldSubsystem.h"
 #include "Simulation/SimSystem.h"
 #include "WorkTypes.h"
-#include "WorkDefinitionRow.h"
+#include "Data/Definitions/WorkDefinitionRow.h"
 #include "WS_Work.generated.h"
 
 class USimCommandBuffer;
@@ -36,6 +36,12 @@ public:
 
 	virtual void WriteToSnapshot_Implementation(FEidosWorldSnapshot& InOutSnapshot) const override;
 	virtual void ApplySnapshot_Implementation(const FEidosWorldSnapshot& Snapshot) override;
+
+	UFUNCTION(BlueprintCallable)
+	bool HasQueuedRequest(int32 RequestId) const;
+
+	UFUNCTION(BlueprintCallable)
+	bool HasActiveInstanceForRequest(int32 RequestId) const;
 
 protected:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
