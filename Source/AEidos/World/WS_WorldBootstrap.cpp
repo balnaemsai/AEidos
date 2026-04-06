@@ -161,6 +161,16 @@ void UWS_WorldBootstrap::ContinueBootstrapAfterDataRegistryReady(bool bOk)
 		return;
 	}
 
+	if (UWS_Building* BuildingWS = GetWorld()->GetSubsystem<UWS_Building>())
+	{
+		BuildingWS->LoadBuildingDefs();
+	}
+
+	if (UWS_Work* WorkWS = GetWorld()->GetSubsystem<UWS_Work>())
+	{
+		WorkWS->LoadWorkDefs();
+	}
+
 	if (!bOk)
 	{
 		UGIS_DataRegistry* DR = GI->GetSubsystem<UGIS_DataRegistry>();

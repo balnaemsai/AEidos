@@ -46,7 +46,7 @@ public:
 	void ToggleControlMode();   // Y
 
 	ECameraControlMode GetControlMode() const { return ControlMode; }
-	EPageViewMode GetViewMode() const {return SelectedPage->GetViewMode();}
+	EPageViewMode GetViewMode() const;
 	TObjectPtr<APageCharacter> GetSelectedPage() const { return SelectedPage; }
 	float GetOrbitYawWorldDeg() {return OrbitYawWorldDeg;}
 

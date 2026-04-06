@@ -3,6 +3,7 @@
 
 #include "Framework/EidosPlayerController.h"
 
+#include "BlendSpaceAnalysis.h"
 #include "Player/Camera/CameraModeComponent.h"
 #include "Entities/Page/PageCharacter.h"
 #include "Simulation/WS_SimulationOrchestrator.h"
@@ -14,6 +15,12 @@
 #include "EngineUtils.h"
 #include "InputActionValue.h"
 
+#include "World/Settlement/WS_Building.h"
+#include "World/Settlement/Building/ConstructionSiteActor.h"
+#include "Data/GIS_DataRegistry.h"
+#include "Data/Definitions/BuildingDefinitionRow.h"
+#include "Iris/ReplicationState/PropertyNetSerializerInfoRegistry.h"
+
 AEidosPlayerController::AEidosPlayerController()
 {
 	CameraMode = CreateDefaultSubobject<UCameraModeComponent>(TEXT("CameraModeComponent"));
@@ -22,6 +29,11 @@ AEidosPlayerController::AEidosPlayerController()
 void AEidosPlayerController::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	if (bInBuildPlacementMode)
+	{
+		UpdateBuildPreview();
+	}
 }
 
 
@@ -112,6 +124,7 @@ void AEidosPlayerController::SetupInputComponent()
 	EI->BindAction(LookAction, ETriggerEvent::Triggered, this, &AEidosPlayerController::OnLook);
 	EI->BindAction(IA_OrbitYaw, ETriggerEvent::Triggered, this, &AEidosPlayerController::OnOrbitYaw);
 	EI->BindAction(IA_Zoom,     ETriggerEvent::Triggered, this, &AEidosPlayerController::OnZoom);
+	EI->BindAction(IA_PrimaryClick, ETriggerEvent::Started, this, &AEidosPlayerController::OnPrimaryClick);
 }
 
 void AEidosPlayerController::OnToggleView(const FInputActionValue& Value)
@@ -217,3 +230,204 @@ void AEidosPlayerController::OnZoom(const FInputActionValue& Value)
 		CameraMode->AddZoomInput(Axis);
 	}
 }
+
+void AEidosPlayerController::OnPrimaryClick(const FInputActionValue& Value)
+{
+	UE_LOG(LogTemp, Warning, TEXT("[PC] OnClick."))
+	if (bInBuildPlacementMode)
+	{
+		ConfirmBuildPlacement();
+		return;
+	}
+}
+
+void AEidosPlayerController::BeginBuildPlacement(FName BuildingId)
+{
+	if (BuildingId.IsNone())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PC] BeginBuildPlacement Failed"));
+		return;
+	}
+
+	CancelBuildPlacement();
+
+	bInBuildPlacementMode = true;
+	PendingBuildingId = BuildingId;
+
+	UE_LOG(LogTemp, Log, TEXT("[PC] BeginBuildPlacement: %s"), *BuildingId.ToString());
+
+	SpawnOrRefreshBuildPreview();
+	UpdateBuildPreview();
+}
+
+void AEidosPlayerController::CancelBuildPlacement()
+{
+	bInBuildPlacementMode = false;
+	PendingBuildingId = NAME_None;
+
+	if (BuildPreviewActor.IsValid())
+	{
+		BuildPreviewActor->Destroy();
+		BuildPreviewActor = nullptr;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[PC] CancelBuildPlacement"));
+}
+
+void AEidosPlayerController::SpawnOrRefreshBuildPreview()
+{
+	if (BuildPreviewActor.IsValid() || PendingBuildingId.IsNone())
+	{
+		return;
+	}
+
+	UGIS_DataRegistry* Registry = GetWorld()->GetGameInstance()->GetSubsystem<UGIS_DataRegistry>();
+	if (!Registry)
+	{
+		return;
+	}
+
+	const FBuildingDefinitionRow* BuildingDef = Registry->GetBuildingDef(PendingBuildingId);
+	if (!BuildingDef)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PC] SpawnBuildPreview failed: missing building def %s"), *PendingBuildingId.ToString());
+		return;
+	}
+
+	TSubclassOf<AActor> PreviewClass = BuildingDef->ConstructionSiteActorClass.LoadSynchronous();
+	if (!PreviewClass)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PC] SpawnBuildPreview failed: missing ConstructionSiteActorClass"));
+		return;
+	}
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	AConstructionSiteActor* Preview = GetWorld()->SpawnActor<AConstructionSiteActor>(PreviewClass, FVector::ZeroVector, FRotator::ZeroRotator, Params);
+	if (!Preview)
+	{
+		return;
+	}
+
+	Preview->InitializeConstructionSite(-1, PendingBuildingId, -1);
+	Preview->SetFootprint(BuildingDef->Footprint);
+	Preview->SetPreviewValid(true);
+	Preview->SetConstructionProgress(0.f);
+
+	BuildPreviewActor = Preview;
+}
+
+void AEidosPlayerController::UpdateBuildPreview()
+{
+	if (!bInBuildPlacementMode || PendingBuildingId.IsNone())
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+
+	if (!BuildPreviewActor.IsValid())
+	{
+		SpawnOrRefreshBuildPreview();
+		if (!BuildPreviewActor.IsValid())
+		{
+			return;
+		}
+	}
+
+	APawn* ControlledPawn = GetPawn();
+	if (!ControlledPawn)
+	{
+		return;
+	}
+
+	FVector Start = PlayerCameraManager ? PlayerCameraManager->GetCameraLocation() : ControlledPawn->GetActorLocation();
+	FVector Dir = PlayerCameraManager ? PlayerCameraManager->GetActorForwardVector() : ControlledPawn->GetActorForwardVector();
+	FVector End = Start + Dir * 1200.f;
+	//UE_LOG(LogTemp, Warning, TEXT("[PC] UpdateBuilding: Loc is %f"), End.X);
+
+	FHitResult Hit;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(BuildPreviewTrace), false, ControlledPawn);
+	Params.AddIgnoredActor(BuildPreviewActor.Get());
+
+	FVector PlaceLoc = Start + Dir * 400.f;
+	if (World->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params))
+	{
+		//UE_LOG(LogTemp, Warning, TEXT("[PC] UpdateBuilding: Trace Success"));
+		PlaceLoc = Hit.Location;
+	}
+
+	PlaceLoc.Z = ControlledPawn->GetActorLocation().Z; //지금은 액터 높이로 하는데, 나중에는 바닥에 딱 붙여야할듯?
+
+	FRotator PlaceRot = FRotator::ZeroRotator;
+
+	BuildPreviewActor->SetActorLocation(PlaceLoc);
+	BuildPreviewActor->SetActorRotation(PlaceRot);
+
+	if (UWS_Building* BuildingWS = World->GetSubsystem<UWS_Building>())
+	{
+		FString Reason;
+		const bool bValid = BuildingWS->ValidatePlacement(PendingBuildingId, PlaceLoc, PlaceRot.Yaw, Reason);
+		BuildPreviewActor->SetPreviewValid(bValid);
+	}
+}
+
+void AEidosPlayerController::ConfirmBuildPlacement()
+{
+	if (!bInBuildPlacementMode || PendingBuildingId.IsNone())
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	UWS_Building* BuildingWS = World->GetSubsystem<UWS_Building>();
+
+	if (!BuildPreviewActor.IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PC] ConfirmBuildPlacement failed: preview actor invalid"));
+		return;
+	}
+
+	const FVector PlaceLoc = BuildPreviewActor->GetActorLocation();
+	const float PlaceYaw = BuildPreviewActor->GetActorRotation().Yaw;
+
+	FString Reason;
+	if (!BuildingWS->ValidatePlacement(PendingBuildingId, PlaceLoc, PlaceYaw, Reason))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PC] ConfirmBuildPlacement denied: %s"), *Reason);
+		return;
+	}
+
+	const int32 RequestId = BuildingWS->RequestBuild(PendingBuildingId, PlaceLoc, PlaceYaw);
+	if (RequestId == INDEX_NONE)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PC] ConfirmBuildPlacement failed: RequestBuild returned INDEX_NONE"));
+		return;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[PC] Build confirmed. BuildingId=%s RequestId=%d"), *PendingBuildingId.ToString(), RequestId);
+
+	if (BuildPreviewActor.IsValid())
+	{
+		BuildPreviewActor->Destroy();
+		BuildPreviewActor = nullptr;
+	}
+
+	bInBuildPlacementMode = false;
+	PendingBuildingId = NAME_None;
+}
+
+bool AEidosPlayerController::IsInPlacementMode() const
+{
+	return bInBuildPlacementMode;
+}
+
+FName AEidosPlayerController::GetPendingBuildingId() const
+{
+	return PendingBuildingId;
+}
+
+
+
+

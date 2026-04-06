@@ -16,7 +16,9 @@
 void UWS_Work::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
-	
+
+	Collection.InitializeDependency<UWS_Economy>();
+	Collection.InitializeDependency<UWS_Population>();
 	EconomyObj = GetWorld()->GetSubsystem<UWS_Economy>();
 	PopulationObj = GetWorld()->GetSubsystem<UWS_Population>();
 
@@ -31,34 +33,6 @@ void UWS_Work::Initialize(FSubsystemCollectionBase& Collection)
 		UE_LOG(LogTemp, Warning, TEXT("[Work] Population subsystem does not implement IEidosPopulationAccess"));
 		PopulationObj = nullptr;
 	}
-
-	WorkDefs.Reset();
-
-	if (!GetWorld()) return;
-
-	UGameInstance* GI = GetWorld()->GetGameInstance();
-	if (!GI) return;
-
-	UGIS_DataRegistry* Registry = GI->GetSubsystem<UGIS_DataRegistry>();
-	if (!Registry) return;
-
-	UDataTable* WorkTable = Registry->GetWorkTable();
-	if (!WorkTable)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Work] DT_Work not found in DataRegistry"));
-		return;
-	}
-
-	TArray<FWorkDefinitionRow*> Rows;
-	WorkTable->GetAllRows<FWorkDefinitionRow>(TEXT("WS_Work::Initialize"), Rows);
-
-	for (const FWorkDefinitionRow* Row : Rows)
-	{
-		if (!Row) continue;
-		WorkDefs.Add(Row->WorkId, *Row);
-	}
-
-	UE_LOG(LogTemp, Log, TEXT("[Work] Loaded WorkDefs: %d"), WorkDefs.Num());
 }
 
 void UWS_Work::SimPlan_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds)
@@ -78,6 +52,8 @@ void UWS_Work::SimPlan_Implementation(USimCommandBuffer* CommandBuffer, float Fi
 	// 3) 진행도 누적 + 완료 목록 수집
 	ProgressInstances(FixedDeltaSeconds);
 
+	//UE_LOG(LogTemp, Log, TEXT("[Work] Plan: WorkPlan working"));
+
 	/*
 	
 	const int32 ProduceNow = FMath::FloorToInt(ProductionAccumulator);
@@ -93,21 +69,32 @@ void UWS_Work::SimPlan_Implementation(USimCommandBuffer* CommandBuffer, float Fi
 void UWS_Work::SimCommit_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds)
 {
 	if (!CommandBuffer)
+	{
 		return;
+	}
 
 	TWeakObjectPtr<UObject> WeakEco(EconomyObj);
 	TWeakObjectPtr<UWS_Work> WeakThis(this);
 
 	UWorld* World = GetWorld();
-	if (!World) return;
+	if (!World)
+	{
+		return;
+	}
 
 	UWS_Economy* Economy = World->GetSubsystem<UWS_Economy>();
-	if (!Economy) return;
+	if (!Economy)
+	{
+		return;
+	}
 
 	for (const FWorkInstance& Planned : PlannedNewInstances)
 	{
 		const FWorkDefinitionRow* Def = FindDef(Planned.WorkId);
-		if (!Def) continue;
+		if (!Def)
+		{
+			continue;
+		}
 
 		FWorkInstance Inst = Planned;
 		Inst.InstanceId = NextInstanceId++;
@@ -156,26 +143,33 @@ int32 UWS_Work::AddWorkRequest(const FWorkRequest& InReq)
 	Req.RequestId = NextRequestId++;
 
 	if (Req.Mode == EWorkRequestMode::Count && Req.RemainingCount <= 0)
+	{
 		Req.RemainingCount = 1;
+	}
 
 	Queue.Add(Req);
 
 	// Priority 높은 것 먼저 처리하고 싶으면 정렬
 	Queue.Sort([](const FWorkRequest& A, const FWorkRequest& B)
 	{
-		if (A.Priority != B.Priority) return A.Priority > B.Priority;
+		if (A.Priority != B.Priority)
+		{
+			return A.Priority > B.Priority;
+		}
 		return A.RequestId < B.RequestId;
 	});
 
-	UE_LOG(LogTemp, Log, TEXT("[Work] AddWorkRequest id=%d work=%s mode=%d prio=%d"),
-		Req.RequestId, *Req.WorkId.ToString(), (int32)Req.Mode, Req.Priority);
+	UE_LOG(LogTemp, Log, TEXT("[Work] AddWorkRequest id=%d work=%s mode=%d prio=%d"), Req.RequestId, *Req.WorkId.ToString(), (int32)Req.Mode, Req.Priority);
 
 	return Req.RequestId;
 }
 
 bool UWS_Work::IsRequestSatisfied(const FWorkRequest& Req) const
 {
-	if (!EconomyObj) return false;
+	if (!EconomyObj)
+	{
+		return false;
+	}
 
 	if (Req.Mode == EWorkRequestMode::Until)
 	{
@@ -187,7 +181,10 @@ bool UWS_Work::IsRequestSatisfied(const FWorkRequest& Req) const
 
 void UWS_Work::TrySpawnInstancesFromQueue()
 {
-	if (!EconomyObj) return;
+	if (!EconomyObj)
+	{
+		return;
+	}
 
 	for (int32 i = 0; i < Queue.Num(); ++i)
 	{
@@ -203,7 +200,11 @@ void UWS_Work::TrySpawnInstancesFromQueue()
 		}
 
 		const FWorkDefinitionRow* Def = FindDef(Req.WorkId);
-		if (!Def) continue;
+		if (!Def)
+		{
+			UE_LOG(LogTemp, Log, TEXT("[Work] TrySpawn: No Def"));
+			continue;
+		}
 
 		// 입력 자원 체크 (전략: “인스턴스 시작 시 선소모” MVP)
 		if (!IEidosEconomyAccess::Execute_CanAfford(EconomyObj, Def->Costs))
@@ -221,7 +222,8 @@ void UWS_Work::TrySpawnInstancesFromQueue()
 		Inst.Progress = 0.f;
 		Inst.MaxWorkers = Def->MaxWorkers;
 		Inst.SiteLocation = ResolveSiteLocationForWork(*Def);
-		
+
+		UE_LOG(LogTemp, Log, TEXT("[Work] TrySpawn: Added Instance to PlannedNewInstances : %s"), *Req.WorkId.ToString());
 		PlannedNewInstances.Add(Inst);
 
 		// Count 모드면 바로 1회 차감(“작업 시작” 기준)
@@ -238,14 +240,21 @@ void UWS_Work::TrySpawnInstancesFromQueue()
 
 void UWS_Work::UpdateAssignments(float FixedDeltaSeconds)
 {
-	if (!PopulationObj) return;
+	if (!PopulationObj)
+	{
+		return;
+	}
 
 	TArray<int32> Pages = IEidosPopulationAccess::Execute_GetAllPageIds(PopulationObj);
 
 	for (FWorkInstance& Inst : ActiveInstances)
 	{
+		//UE_LOG(LogTemp, Log, TEXT("[Work] UpdateAssignments: Working"));
 		const FWorkDefinitionRow* Def = FindDef(Inst.WorkId);
-		if (!Def) continue;
+		if (!Def)
+		{
+			continue;
+		}
 
 		// 부족한 인원만큼 채우기
 		while (Inst.Workers.Num() < Inst.MaxWorkers)
@@ -255,11 +264,15 @@ void UWS_Work::UpdateAssignments(float FixedDeltaSeconds)
 			for (int32 PageId : Pages)
 			{
 				if (!IEidosPopulationAccess::Execute_IsPageAvailable(PopulationObj, PageId))
+				{
 					continue;
+				}
 
 				// 이미 이 인스턴스에 참여 중이면 스킵
 				if (Inst.Workers.Contains(PageId))
+				{
 					continue;
+				}
 
 				// TODO: 페이지의 job 우선순위/선호/해금(특성) 체크 넣고 싶으면 여기서 판단
 				BestPageId = PageId;
@@ -267,9 +280,13 @@ void UWS_Work::UpdateAssignments(float FixedDeltaSeconds)
 			}
 
 			if (BestPageId == INDEX_NONE)
+			{
 				break;
+			}
 
 			Inst.Workers.Add(BestPageId);
+
+			UE_LOG(LogTemp, Log, TEXT("[Work] UpdateAssignments: Added Page %d to Instance"), BestPageId);
 
 			// PageJobs에 기록 (페이지가 여러 job을 가질 수 있으니 배열)
 			FJob Job;
@@ -280,18 +297,24 @@ void UWS_Work::UpdateAssignments(float FixedDeltaSeconds)
 
 			PageJobs.FindOrAdd(BestPageId).Jobs.Add(Job);
 		}
-		
 	}
 }
 
 void UWS_Work::ProgressInstances(float FixedDeltaSeconds)
 {
-	if (!PopulationObj) return;
+	if (!PopulationObj)
+	{
+		return;
+	}
 
 	for (FWorkInstance& Inst : ActiveInstances)
 	{
+		//UE_LOG(LogTemp, Log, TEXT("[Work] ProgressInstances: Working"));
 		const FWorkDefinitionRow* Def = FindDef(Inst.WorkId);
-		if (!Def) continue;
+		if (!Def)
+		{
+			continue;
+		}
 
 		float TotalRateThisTick = 0.f;
 
@@ -304,6 +327,7 @@ void UWS_Work::ProgressInstances(float FixedDeltaSeconds)
 		}
 
 		Inst.Progress += TotalRateThisTick * FixedDeltaSeconds;
+		UE_LOG(LogTemp, Log, TEXT("[Work] ProgressInstances: Progress is %f"), Inst.Progress);
 
 		if (Inst.Progress >= Inst.TotalWork)
 		{
@@ -321,8 +345,12 @@ void UWS_Work::ProgressInstances(float FixedDeltaSeconds)
 void UWS_Work::HandleInstanceCompleted(const FWorkInstance& Inst)
 {
 	const FWorkDefinitionRow* Def = FindDef(Inst.WorkId);
-	if (!Def) return;
+	if (!Def)
+	{
+		return;
+	}
 
+	UE_LOG(LogTemp, Log, TEXT("[Work] HandleInstanceComplete: Working"))
 	// 보상 지급
 	if (EconomyObj)
 	{
@@ -451,15 +479,25 @@ void UWS_Work::ApplySnapshot_Implementation(const FEidosWorldSnapshot& Snapshot)
 	PageJobs.Reset();
 
 	// 방어적: ID가 0/미설정으로 들어왔을 때 대비
-	if (NextRequestId <= 0) NextRequestId = 1;
-	if (NextInstanceId <= 0) NextInstanceId = 1;
+	if (NextRequestId <= 0)
+	{
+		NextRequestId = 1;
+	}
+	if (NextInstanceId <= 0)
+	{
+		NextInstanceId = 1;
+	}
 
 	// 방어적: 로드된 데이터 기반으로 NextId 재계산(충돌 방지)
 	for (const FWorkRequest& R : Queue)
+	{
 		NextRequestId = FMath::Max(NextRequestId, R.RequestId + 1);
+	}
 
 	for (const FWorkInstance& I : ActiveInstances)
+	{
 		NextInstanceId = FMath::Max(NextInstanceId, I.InstanceId + 1);
+	}
 }
 
 bool UWS_Work::HasQueuedRequest(int32 RequestId) const
@@ -478,4 +516,45 @@ bool UWS_Work::HasActiveInstanceForRequest(int32 RequestId) const
 	});
 }
 
+void UWS_Work::LoadWorkDefs()
+{
+	WorkDefs.Reset();
 
+	if (!GetWorld())
+	{
+		return;
+	}
+
+	UGameInstance* GI = GetWorld()->GetGameInstance();
+	if (!GI)
+	{
+		return;
+	}
+
+	UGIS_DataRegistry* Registry = GI->GetSubsystem<UGIS_DataRegistry>();
+	if (!Registry)
+	{
+		return;
+	}
+
+	UDataTable* WorkTable = Registry->GetWorkTable();
+	if (!WorkTable)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Work] DT_Work not found in DataRegistry"));
+		return;
+	}
+
+	TArray<FWorkDefinitionRow*> Rows;
+	WorkTable->GetAllRows<FWorkDefinitionRow>(TEXT("WS_Work::Initialize"), Rows);
+
+	for (const FWorkDefinitionRow* Row : Rows)
+	{
+		if (!Row)
+		{
+			continue;
+		}
+		WorkDefs.Add(Row->WorkId, *Row);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[Work] Loaded WorkDefs: %d"), WorkDefs.Num());
+}

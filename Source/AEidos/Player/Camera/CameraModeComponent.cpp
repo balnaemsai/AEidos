@@ -374,3 +374,30 @@ USceneComponent* UCameraModeComponent::ResolveActiveThirdPersonPivot() const
 	}
 	return nullptr;
 }
+
+EPageViewMode UCameraModeComponent::GetViewMode() const
+{
+	if (ControlMode == ECameraControlMode::FollowPage)
+	{
+		if (APageCharacter* Page = SelectedPage.Get())
+		{
+			return Page->GetViewMode();
+		}
+		return EPageViewMode::ThirdPerson;
+	}
+
+	/*
+
+	if (ControlMode == ECameraControlMode::FreeCam)
+	{
+		if (AFreeCamPawn* Cam = FreeCamPawn.Get())
+		{
+			return Cam->GetViewMode();
+		}
+		return EPageViewMode::ThirdPerson;
+	}
+	지금 FollowPage일때랑 Freecam일때 각각 어떻게 작동하는지 정리해봐야할듯. 이거 Viewmode를 보관하는게 헷갈린다
+	*/
+
+	return EPageViewMode::ThirdPerson;
+}

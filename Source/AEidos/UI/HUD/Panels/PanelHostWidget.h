@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Panel_Build.h"
 #include "Blueprint/UserWidget.h"
 #include "Components/HorizontalBox.h"
 #include "Components/WidgetSwitcher.h"
@@ -18,6 +19,9 @@ class AEIDOS_API UPanelHostWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
+
+	virtual void NativeConstruct() override;
+	
 	UFUNCTION(BlueprintCallable)
 	void SetPanel(EInGamePanel NewPanel);
 
@@ -26,6 +30,14 @@ protected:
 	
 	UPROPERTY(meta=(BindWidget))
 	UWidgetSwitcher* Switcher_Center;
+
+	UFUNCTION()
+	void HandleBuildStartRequested(FName BuildingId);
+
+	void BindActiveBuildPanel();
+
+	UPROPERTY(Transient)
+	TWeakObjectPtr<UPanel_Build> CachedBuildPanel;
 
 private:
 	EInGamePanel CurrentPanel = EInGamePanel::Recruit;

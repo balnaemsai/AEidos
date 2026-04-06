@@ -52,4 +52,13 @@ struct FBuildingDefinitionRow : public FTableRowBase
 	// 배치 높이 오프셋
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	float ZOffset = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TSoftObjectPtr<UTexture2D> ThumbnailIcon;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	FText Description;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TArray<FName> RequiredResearchIds;
 };

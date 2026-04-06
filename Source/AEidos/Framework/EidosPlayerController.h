@@ -11,6 +11,7 @@ class UCameraModeComponent;
 class UInputMappingContext;
 class UInputAction;
 class APageCharacter;
+class AConstructionSiteActor;
 
 /**
  * 
@@ -36,6 +37,18 @@ public:
 
 	UCameraModeComponent* GetCameraMode() {return CameraMode;}
 
+	UFUNCTION()
+	void BeginBuildPlacement(FName BuildingId);
+
+	UFUNCTION()
+	void CancelBuildPlacement();
+
+	UFUNCTION()
+	bool IsInPlacementMode() const;
+
+	UFUNCTION()
+	FName GetPendingBuildingId() const;
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
 	UCameraModeComponent* CameraMode;
@@ -59,6 +72,9 @@ protected:
 	UFUNCTION()
 	void OnZoom(const FInputActionValue& Value);
 
+	UFUNCTION()
+	void OnPrimaryClick(const FInputActionValue& Value);
+
 	UPROPERTY(EditDefaultsOnly, Category="Input")
 	UInputAction* LookAction; // IA_Look
 
@@ -66,6 +82,22 @@ protected:
 	UInputAction* IA_OrbitYaw; 
 
 	UPROPERTY(EditDefaultsOnly, Category="Input")
-	UInputAction* IA_Zoom; 
+	UInputAction* IA_Zoom;
+
+	UPROPERTY(EditDefaultsOnly, Category="Input")
+	TObjectPtr<UInputAction> IA_PrimaryClick;
+
+	void ConfirmBuildPlacement();
+	void UpdateBuildPreview();
+	void SpawnOrRefreshBuildPreview();
+
+	UPROPERTY(Transient)
+	bool bInBuildPlacementMode = false;
+
+	UPROPERTY(Transient)
+	FName PendingBuildingId = NAME_None;
+
+	UPROPERTY(Transient)
+	TWeakObjectPtr<AConstructionSiteActor> BuildPreviewActor;
 	
 };

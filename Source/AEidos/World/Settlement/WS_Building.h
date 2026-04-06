@@ -75,9 +75,11 @@ public:
 	UFUNCTION(BlueprintCallable)
 	const TArray<FConstructionSiteState>& GetConstructionSites() const { return ConstructionSites; }
 
+	UFUNCTION(BlueprintCallable)
+	void LoadBuildingDefs();
+
 private:
 	const FBuildingDefinitionRow* FindBuildingDef(FName BuildingId) const;
-	void LoadBuildingDefs();
 
 	bool IntersectsAnyPlacedOrConstruction(const FBuildingDefinitionRow& Def, FVector Location) const;
 	int32 CreateConstructionSite(FName BuildingId, FVector Location, float YawDeg, int32 WorkRequestId);

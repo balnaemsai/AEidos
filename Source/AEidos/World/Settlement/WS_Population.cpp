@@ -240,6 +240,8 @@ float UWS_Population::ComputeWorkRateMultiplier_Implementation(int32 PageId, FNa
 	// 가장 단순한 현재 구조:
 	// WorkId == SkillId 라고 가정하거나,
 	// 나중에 DT_Work에서 PrimarySkillId를 꺼내 Population 쪽에서 사용하도록 확장 가능
+
+	//UE_LOG(LogTemp, Log, TEXT("[Population] ComputeWorkRate: Skillmultiplier is %f"), Page->GetSkillMultiplier(WorkId));
 	return Page->GetSkillMultiplier(WorkId);
 }
 

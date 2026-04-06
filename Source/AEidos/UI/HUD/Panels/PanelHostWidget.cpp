@@ -3,6 +3,29 @@
 
 #include "UI/HUD/Panels/PanelHostWidget.h"
 #include "UI/HUD/Panels/PanelLifeCycle.h"
+#include "UI/HUD/Panels/Panel_Build.h"
+#include "FrameWork/EidosPlayerController.h"
+#include "UI/HUD/HUDRootWidget.h"
+
+void UPanelHostWidget::NativeConstruct()
+{
+	Super::NativeConstruct();
+
+	BindActiveBuildPanel();
+}
+
+void UPanelHostWidget::HandleBuildStartRequested(FName BuildingId)
+{
+	UE_LOG(LogTemp, Warning, TEXT("[PanelHost] HandleBuildStartRequested : %s"), *BuildingId.ToString());
+
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		if (AEidosPlayerController* EidosPC = Cast<AEidosPlayerController>(PC))
+		{
+			EidosPC->BeginBuildPlacement(BuildingId);
+		}
+	}
+}
 
 int32 UPanelHostWidget::PanelToIndex(EInGamePanel Panel) const
 {
@@ -55,4 +78,38 @@ void UPanelHostWidget::SetPanel(EInGamePanel NewPanel)
 	Switcher_Center->SetActiveWidgetIndex(PanelToIndex(NewPanel));
 	
 	CallShown(Switcher_Center->GetActiveWidget());
+
+	BindActiveBuildPanel();
+}
+
+void UPanelHostWidget::BindActiveBuildPanel()
+{
+	if (!Switcher_Center)
+	{
+		return;
+	}
+
+	UWidget* ActiveWidget = Switcher_Center->GetActiveWidget();
+	UE_LOG(LogTemp, Warning, TEXT("[PanelHost] ActiveWidget = %s"), *GetNameSafe(ActiveWidget));
+
+	UPanel_Build* Build = Cast<UPanel_Build>(ActiveWidget);
+	if (!Build)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PanelHost] ActiveWidget is not BuildPanel"));
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[PanelHost] BuildPanel Found : %s"), *Build->GetName());
+
+	if (CachedBuildPanel.Get() == Build)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[PanelHost] BuildPanel Already Exists"));
+		return;
+	}
+
+	Build->OnBuildStartRequested.RemoveDynamic(this, &UPanelHostWidget::HandleBuildStartRequested);
+	Build->OnBuildStartRequested.AddDynamic(this, &UPanelHostWidget::HandleBuildStartRequested);
+
+	CachedBuildPanel = Build;
+	UE_LOG(LogTemp, Warning, TEXT("[PanelHost] BuildPanel Created"));
 }

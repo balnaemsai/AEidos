@@ -17,8 +17,8 @@ void UWS_Building::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 
+	Collection.InitializeDependency<UWS_Work>();
 	WorkSubsystem = GetWorld()->GetSubsystem<UWS_Work>();
-	LoadBuildingDefs();
 }
 
 void UWS_Building::LoadBuildingDefs()
@@ -49,7 +49,7 @@ void UWS_Building::LoadBuildingDefs()
 		UE_LOG(LogTemp, Warning, TEXT("[Building] DT_Building not found"));
 		return;
 	}
-
+	
 	TArray<FBuildingDefinitionRow*> Rows;
 	DT->GetAllRows(TEXT("WS_Building::LoadBuildingDefs"), Rows);
 
@@ -140,6 +140,7 @@ bool UWS_Building::IntersectsAnyPlacedOrConstruction(const FBuildingDefinitionRo
 
 bool UWS_Building::ValidatePlacement(FName BuildingId, FVector Location, float YawDeg, FString& OutReason) const
 {
+	
 	const FBuildingDefinitionRow* Def = FindBuildingDef(BuildingId);
 	if (!Def)
 	{

@@ -36,3 +36,26 @@ void UWS_Economy::SimPost_Implementation(float FixedDeltaSeconds)
 		OnEconomyChanged.Broadcast();
 	}
 }
+
+bool UWS_Economy::CanAfford_Implementation(const TArray<FWorkCost>& Costs) const
+{
+	return true;
+}
+
+void UWS_Economy::ConsumeCosts_Implementation(const TArray<FWorkCost>& Costs)
+{
+	
+}
+
+int32 UWS_Economy::GetResourceAmount_Implementation(FName ResourceId) const
+{
+	return GetAmount(ResourceId);
+}
+
+void UWS_Economy::GrantRewards_Implementation(const TArray<FWorkReward>& Rewards)
+{
+	
+}
+
+
+

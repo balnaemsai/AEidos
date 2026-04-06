@@ -2,4 +2,266 @@
 
 
 #include "UI/HUD/Panels/Panel_Build.h"
+#include "UI/HUD/Panels/BuildEntry.h"
 
+#include "Data/GIS_DataRegistry.h"
+#include "Data/Definitions/WorkDefinitionRow.h"
+
+#include "Components/Button.h"
+#include "Components/Image.h"
+#include "Components/TextBlock.h"
+#include "Components/WrapBox.h"
+#include "Components/VerticalBox.h"
+#include "Components/WrapBoxSlot.h"
+#include "Components/PanelWidget.h"
+#include "Components/Border.h"
+#include "Blueprint/WidgetTree.h"
+#include "Engine/DataTable.h"
+#include "Engine/Texture2D.h"
+
+void UPanel_Build::NativeConstruct()
+{
+	Super::NativeConstruct();
+
+	if (Button_StartBuild)
+	{
+		Button_StartBuild->OnClicked.AddDynamic(this, &UPanel_Build::HandleStartBuildClicked);
+	}
+
+	RefreshBuildList();
+}
+
+void UPanel_Build::RefreshBuildList()
+{
+	UE_LOG(LogTemp, Warning, TEXT("[BuildPanel] RefreshBuildList START"));
+
+	CachedItems.Reset();
+
+	if (!WrapBox_BuildEntries)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[BuildPanel] WrapBox_BuildEntries is null"));
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[BuildPanel] WrapBox_BuildEntries valid: %s"), *GetNameSafe(WrapBox_BuildEntries));
+
+	WrapBox_BuildEntries->ClearChildren();
+	UE_LOG(LogTemp, Warning, TEXT("[BuildPanel] Cleared existing children"));
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[BuildPanel] GetWorld() is null"));
+		return;
+	}
+	UE_LOG(LogTemp, Warning, TEXT("[BuildPanel] World = %s"), *GetNameSafe(World));
+
+	UGameInstance* GI = World->GetGameInstance();
+	if (!GI)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[BuildPanel] GameInstance is null"));
+		return;
+	}
+	UE_LOG(LogTemp, Warning, TEXT("[BuildPanel] GameInstance = %s"), *GetNameSafe(GI));
+
+	UGIS_DataRegistry* Registry = GI->GetSubsystem<UGIS_DataRegistry>();
+	if (!Registry)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[BuildPanel] DataRegistry subsystem is null"));
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[BuildPanel] DataRegistry valid. Ready=%d Loading=%d Reason=%s"),
+	       Registry->IsReady(),
+	       Registry->IsLoading(),
+	       *Registry->GetNotReadyReason());
+
+	UDataTable* DT = Registry->GetBuildingTable();
+	if (!DT)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[BuildPanel] DT_Building is null"));
+		return;
+	}
+	UE_LOG(LogTemp, Warning, TEXT("[BuildPanel] BuildingTable = %s"), *GetNameSafe(DT));
+
+	TArray<FBuildingDefinitionRow*> Rows;
+	DT->GetAllRows(TEXT("UWBP_BuildPanelBase::RefreshBuildList"), Rows);
+
+	UE_LOG(LogTemp, Warning, TEXT("[BuildPanel] DT_Building row count = %d"), Rows.Num());
+
+	for (const FBuildingDefinitionRow* Row : Rows)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BuildPanel] BuildingId=%s DisplayName=%s BuildWorkId=%s"),
+		       *Row->BuildingId.ToString(),
+		       *Row->DisplayName.ToString(),
+		       *Row->BuildWorkId.ToString());
+
+		if (!Row)
+		{
+			continue;
+		}
+
+		FBuildPanelItem Item;
+		if (!BuildItemFromTables(Row->BuildingId, Item))
+		{
+			continue;
+		}
+
+		CachedItems.Add(Item);
+
+		if (!BuildEntryClass)
+		{
+			continue;
+		}
+
+		UBuildEntry* Entry = CreateWidget<UBuildEntry>(this, BuildEntryClass);
+		if (!Entry)
+		{
+			UE_LOG(LogTemp, Error, TEXT("[BuildPanel] No Entry"));
+			continue;
+		}
+
+		Entry->Setup(Item);
+		Entry->OnEntryClicked.AddDynamic(this, &UPanel_Build::SelectBuilding);
+
+		UWrapBoxSlot* WrapSlot = Cast<UWrapBoxSlot>(WrapBox_BuildEntries->AddChild(Entry));
+		if (WrapSlot)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[BuildPanel] WrapBox Set"));
+			WrapSlot->SetPadding(FMargin(8.f));
+		}
+	}
+
+	if (CachedItems.Num() > 0)
+	{
+		SelectBuilding(CachedItems[0].BuildingId);
+	}
+}
+
+bool UPanel_Build::BuildItemFromTables(FName BuildingId, FBuildPanelItem& OutItem) const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	UGameInstance* GI = World->GetGameInstance();
+	if (!GI)
+	{
+		return false;
+	}
+
+	UGIS_DataRegistry* Registry = GI->GetSubsystem<UGIS_DataRegistry>();
+	if (!Registry)
+	{
+		return false;
+	}
+
+	const FBuildingDefinitionRow* BuildingDef = Registry->GetBuildingDef(BuildingId);
+	if (!BuildingDef)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[BuildPanel] Can't Find Building Def"));
+		return false;
+	}
+
+	const FWorkDefinitionRow* WorkDef = Registry->GetWorkDef(BuildingDef->BuildWorkId);
+	if (!WorkDef)
+	{
+		return false;
+	}
+
+	OutItem.BuildingId = BuildingDef->BuildingId;
+	OutItem.DisplayName = BuildingDef->DisplayName;
+	OutItem.Description = BuildingDef->Description;
+	OutItem.Category = BuildingDef->Category;
+	OutItem.ThumbnailIcon = BuildingDef->ThumbnailIcon;
+	OutItem.BuildWorkId = BuildingDef->BuildWorkId;
+	OutItem.Costs = WorkDef->Costs;
+	OutItem.TotalWork = WorkDef->TotalWork;
+	OutItem.RequiredResearchIds = BuildingDef->RequiredResearchIds;
+
+	return true;
+}
+
+void UPanel_Build::SelectBuilding(const FName BuildingId)
+{
+	SelectedBuildingId = BuildingId;
+	UE_LOG(LogTemp, Warning, TEXT("[BuildPanel] Build Selected : %s"), *BuildingId.ToString());
+	RebuildDetail();
+}
+
+void UPanel_Build::RebuildDetail()
+{
+	const FBuildPanelItem* Item = CachedItems.FindByPredicate([&](const FBuildPanelItem& It)
+	{
+		return It.BuildingId == SelectedBuildingId;
+	});
+
+	if (!Item)
+	{
+		return;
+	}
+
+	if (Text_SelectedName)
+	{
+		Text_SelectedName->SetText(Item->DisplayName);
+	}
+	if (Text_SelectedDesc)
+	{
+		Text_SelectedDesc->SetText(Item->Description);
+	}
+	if (Text_TotalWorkValue)
+	{
+		Text_TotalWorkValue->SetText(FText::AsNumber(Item->TotalWork));
+	}
+	if (Text_WorkIdValue)
+	{
+		Text_WorkIdValue->SetText(FText::FromName(Item->BuildWorkId));
+	}
+	if (Text_CategoryValue)
+	{
+		Text_CategoryValue->SetText(FText::FromString(UEnum::GetValueAsString(Item->Category)));
+	}
+	if (Image_SelectedIcon)
+	{
+		if (UTexture2D* Tex = Item->ThumbnailIcon.LoadSynchronous())
+		{
+			Image_SelectedIcon->SetBrushFromTexture(Tex);
+		}
+	}
+
+	WrapBox_CostList->ClearChildren();
+
+	for (const FWorkCost& Cost : Item->Costs)
+	{
+		UTextBlock* Txt = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+		Txt->SetText(FText::FromString(FString::Printf(TEXT("%s x%d"), *Cost.ResourceId.ToString(), Cost.Amount)));
+		WrapBox_CostList->AddChildToWrapBox(Txt);
+	}
+
+	VerticalBox_RequirementList->ClearChildren();
+
+	for (const FName& Req : Item->RequiredResearchIds)
+	{
+		UTextBlock* Txt = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+		Txt->SetText(FText::FromName(Req));
+		VerticalBox_RequirementList->AddChildToVerticalBox(Txt);
+	}
+}
+
+void UPanel_Build::HandleStartBuildClicked()
+{
+	if (!SelectedBuildingId.IsNone())
+	{
+		OnBuildStartRequested.Broadcast(SelectedBuildingId);
+	}
+}
+
+void UPanel_Build::ClearChildrenSafe(UPanelWidget* Panel)
+{
+	if (Panel)
+	{
+		Panel->ClearChildren();
+	}
+}

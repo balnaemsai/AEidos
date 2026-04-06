@@ -326,6 +326,7 @@ const FBuildingDefinitionRow* UGIS_DataRegistry::GetBuildingDef(FName BuildingId
 	UDataTable* Table = GetBuildingTable();
 	if (!Table || BuildingId.IsNone())
 	{
+		UE_LOG(LogTemp, Error, TEXT("[DataRegistry] No Table or BuildingId is None"));
 		return nullptr;
 	}
 

@@ -43,6 +43,9 @@ public:
 	UFUNCTION(BlueprintCallable)
 	bool HasActiveInstanceForRequest(int32 RequestId) const;
 
+	UFUNCTION(BlueprintCallable)
+	void LoadWorkDefs();
+
 protected:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	
