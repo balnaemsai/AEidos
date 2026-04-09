@@ -10,6 +10,7 @@
 
 #include "World/Settlement/WS_SettlementSpace.h"
 #include "Simulation/WS_SimulationOrchestrator.h"
+#include "World/Settlement/WS_Economy.h"
 
 DEFINE_LOG_CATEGORY(LogSaveLoad);
 
@@ -57,6 +58,7 @@ void UGIS_SaveLoad::BuildNewGameSnapshotIfNeeded(const FString& MapNameHint)
 	// 최소 초기값(원하면 시나리오/난이도/시드 등 저장)
 	S.SetKVString(TEXT("Game.Mode"), TEXT("NewGame"));
 	S.SetKVString(TEXT("World.Seed"), TEXT("12345"));
+	S.SetKVString(TEXT("Economy.Resource.EP"), TEXT("500"));
 
 	NewGameSnapshot = S;
 	bHasNewGameSnapshot = true;
@@ -171,8 +173,7 @@ FEidosWorldSnapshot UGIS_SaveLoad::CaptureWorldSnapshot(UWorld& World) const
 void UGIS_SaveLoad::DispatchApplySnapshot(UWorld& World, const FEidosWorldSnapshot& Snapshot)
 {
 	// 0) (선택) 적용 전/후 로그
-	UE_LOG(LogSaveLoad, Log, TEXT("[SaveLoad] DispatchApplySnapshot Map=%s KV=%d"),
-		*World.GetMapName(), Snapshot.KV.Num());
+	UE_LOG(LogSaveLoad, Log, TEXT("[SaveLoad] DispatchApplySnapshot Map=%s KV=%d"), *World.GetMapName(), Snapshot.KV.Num());
 
 	// 1) WS에 먼저 Apply (보통 “월드 전역 상태”가 Actor보다 선행되는 게 안정적)
 	{
@@ -189,6 +190,14 @@ void UGIS_SaveLoad::DispatchApplySnapshot(UWorld& World, const FEidosWorldSnapsh
 			if (Orch->GetClass()->ImplementsInterface(USaveGameParticipant::StaticClass()))
 			{
 				ISaveGameParticipant::Execute_ApplySnapshot(Orch, Snapshot);
+			}
+		}
+
+		if (UWS_Economy* Eco = World.GetSubsystem<UWS_Economy>())
+		{
+			if (Eco->GetClass()->ImplementsInterface(USaveGameParticipant::StaticClass()))
+			{
+				ISaveGameParticipant::Execute_ApplySnapshot(Eco, Snapshot);
 			}
 		}
 

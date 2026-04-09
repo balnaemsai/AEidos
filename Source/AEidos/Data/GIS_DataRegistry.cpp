@@ -9,6 +9,7 @@
 #include "Data/EidosDataRegistryConfig.h"
 #include "Data/Definitions/WorkDefinitionRow.h"
 #include "Data/Definitions/BuildingDefinitionRow.h"
+#include "Data/Definitions/ResourceDefinitionRow.h"
 
 DEFINE_LOG_CATEGORY(LogDataRegistry);
 
@@ -331,6 +332,55 @@ const FBuildingDefinitionRow* UGIS_DataRegistry::GetBuildingDef(FName BuildingId
 	}
 
 	return Table->FindRow<FBuildingDefinitionRow>(BuildingId, TEXT("GetBuildingDef"));
+}
+
+UDataTable* UGIS_DataRegistry::GetResourceTable() const
+{
+	return FindDataTableByName(TEXT("DT_Resource"));
+}
+
+const FResourceDefinitionRow* UGIS_DataRegistry::GetResourceDef(FName ResourceId) const
+{
+	UDataTable* ResourceTable = GetResourceTable();
+	if (!ResourceTable || ResourceId.IsNone())
+	{
+		UE_LOG(LogTemp, Error, TEXT("[DataRegistry] No ResourceId is None"));
+		return nullptr;
+	}
+
+	return ResourceTable->FindRow<FResourceDefinitionRow>(ResourceId, TEXT("GetResourceDef"));
+}
+
+TArray<FName> UGIS_DataRegistry::GetAllResourceIds() const
+{
+	TArray<FName> Result;
+
+	UDataTable* Table = GetResourceTable();
+	if (!Table)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[DataRegistry] DT_Resource not found"));
+		return Result;
+	}
+
+	Result = Table->GetRowNames();
+	return Result;
+}
+
+UDataTable* UGIS_DataRegistry::GetPortalTable() const
+{
+	return FindDataTableByName(TEXT("DT_Portal"));
+}
+
+const FPortalDefinitionRow* UGIS_DataRegistry::GetPortalDef(FName PortalDefId) const
+{
+	UDataTable* Table = GetPortalTable();
+	if (!Table || PortalDefId.IsNone())
+	{
+		UE_LOG(LogTemp, Error, TEXT("[DataRegistry] No Portal Table or PortalDefId is None"));
+		return nullptr;
+	}
+
+	return Table->FindRow<FPortalDefinitionRow>(PortalDefId, TEXT("GetPortalDef"));
 }
 
 

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Definitions/PortalDefinitionRow.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Engine/StreamableManager.h"
 #include "GIS_DataRegistry.generated.h"
@@ -13,6 +14,7 @@ class UDataTable;
 struct FSkillDefinitionRow;
 struct FWorkDefinitionRow;
 struct FBuildingDefinitionRow;
+struct FResourceDefinitionRow;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogDataRegistry, Log, All);
 
@@ -46,6 +48,13 @@ class AEIDOS_API UGIS_DataRegistry : public UGameInstanceSubsystem
 
 	UDataTable* GetBuildingTable() const;
 	const FBuildingDefinitionRow* GetBuildingDef(FName BuildingId) const;
+
+	UDataTable* GetResourceTable() const;
+	const FResourceDefinitionRow* GetResourceDef(FName ResourceId) const;
+	TArray<FName> GetAllResourceIds() const;
+
+	UDataTable* GetPortalTable() const;
+	const FPortalDefinitionRow* GetPortalDef(FName PortalDefId) const;
 
 	private:
 	TSoftObjectPtr<UEidosDataRegistryConfig> ConfigRef;

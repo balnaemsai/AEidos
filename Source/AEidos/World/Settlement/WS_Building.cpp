@@ -6,6 +6,7 @@
 #include "Data/GIS_DataRegistry.h"
 #include "Data/Definitions/BuildingDefinitionRow.h"
 #include "World/Settlement/WS_Work.h"
+#include "World/Settlement/WS_Economy.h"
 #include "Engine/DataTable.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
@@ -182,11 +183,7 @@ int32 UWS_Building::CreateConstructionSite(FName BuildingId, FVector Location, f
 			FActorSpawnParameters Params;
 			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-			AActor* Spawned = GetWorld()->SpawnActor<AActor>(
-				SpawnClass,
-				Location + FVector(0.f, 0.f, Def->ZOffset),
-				FRotator(0.f, YawDeg, 0.f),
-				Params);
+			AActor* Spawned = GetWorld()->SpawnActor<AActor>(SpawnClass, Location + FVector(0.f, 0.f, Def->ZOffset),FRotator(0.f, YawDeg, 0.f), Params);
 
 			Site.SiteActor = Spawned;
 
@@ -211,6 +208,13 @@ int32 UWS_Building::RequestBuild(FName BuildingId, FVector Location, float YawDe
 		return INDEX_NONE;
 	}
 
+	UWS_Economy* Economy = GetWorld() ? GetWorld()->GetSubsystem<UWS_Economy>() : nullptr;
+	if (!Economy)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Building] EconomySubsystem missing"));
+		return INDEX_NONE;
+	}
+
 	const FBuildingDefinitionRow* Def = FindBuildingDef(BuildingId);
 	if (!Def)
 	{
@@ -221,6 +225,15 @@ int32 UWS_Building::RequestBuild(FName BuildingId, FVector Location, float YawDe
 	if (!ValidatePlacement(BuildingId, Location, YawDeg, Reason))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Building] RequestBuild failed: %s"), *Reason);
+		return INDEX_NONE;
+	}
+
+	UGIS_DataRegistry* DR = GetWorld()->GetGameInstance()->GetSubsystem<UGIS_DataRegistry>();
+	const FWorkDefinitionRow* WorkDef = DR->GetWorkDef(Def->BuildWorkId);
+
+	if (!IEidosEconomyAccess::Execute_CanAfford(Economy, WorkDef->Costs))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Building] Cannot afford build costs for %s"), *BuildingId.ToString());
 		return INDEX_NONE;
 	}
 
@@ -238,8 +251,7 @@ int32 UWS_Building::RequestBuild(FName BuildingId, FVector Location, float YawDe
 
 	CreateConstructionSite(BuildingId, Location, YawDeg, RequestId);
 
-	UE_LOG(LogTemp, Log, TEXT("[Building] RequestBuild BuildingId=%s RequestId=%d"),
-	       *BuildingId.ToString(), RequestId);
+	UE_LOG(LogTemp, Log, TEXT("[Building] RequestBuild BuildingId=%s RequestId=%d"), *BuildingId.ToString(), RequestId);
 
 	return RequestId;
 }
@@ -268,19 +280,18 @@ void UWS_Building::FinalizeBuilding(int32 SiteId)
 		Site->SiteActor = nullptr;
 	}
 
-	if (Def->BuildingActorClass.IsValid())
+	if (!Def->BuildingActorClass.IsNull())
 	{
+		UE_LOG(LogTemp, Log, TEXT("[Building]Finalize: IsValid"));
 		UClass* SpawnClass = Def->BuildingActorClass.LoadSynchronous();
 		if (SpawnClass)
 		{
 			FActorSpawnParameters Params;
 			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-			AActor* Spawned = GetWorld()->SpawnActor<AActor>(
-				SpawnClass,
-				Site->Location + FVector(0.f, 0.f, Def->ZOffset),
-				FRotator(0.f, Site->YawDeg, 0.f),
-				Params);
+			AActor* Spawned = GetWorld()->SpawnActor<AActor>(SpawnClass,Site->Location + FVector(0.f, 0.f, Def->ZOffset),FRotator(0.f, Site->YawDeg, 0.f), Params);
+
+			RegisterAutoWorksForBuilding(Def->BuildingId, Spawned->GetActorLocation());
 
 			Site->FinalActor = Spawned;
 			
@@ -295,8 +306,7 @@ void UWS_Building::FinalizeBuilding(int32 SiteId)
 
 	Site->bCompleted = true;
 
-	UE_LOG(LogTemp, Log, TEXT("[Building] Finalized SiteId=%d BuildingId=%s"),
-	       SiteId, *Site->BuildingId.ToString());
+	UE_LOG(LogTemp, Log, TEXT("[Building] Finalized SiteId=%d BuildingId=%s"), SiteId, *Site->BuildingId.ToString());
 }
 
 void UWS_Building::CleanupInvalidActors()
@@ -377,4 +387,36 @@ void UWS_Building::ApplySnapshot_Implementation(const FEidosWorldSnapshot& Snaps
 {
 	// MVP 단계에서는 생략.
 	// 이후 ConstructionSites/Completed buildings를 복원하면서 Actor respawn 처리.
+}
+
+void UWS_Building::RegisterAutoWorksForBuilding(FName BuildingId, const FVector& BuildingLocation)
+{
+	if (!WorkSubsystem)
+	{
+		return;
+	}
+
+	const FBuildingDefinitionRow* Def = FindBuildingDef(BuildingId);
+	if (!Def)
+	{
+		return;
+	}
+
+	for (const FAutoWorkEntry& Auto : Def->AutoWorks)
+	{
+		if (Auto.WorkId.IsNone())
+		{
+			continue;
+		}
+
+		FWorkRequest Req;
+		Req.WorkId = Auto.WorkId;
+		Req.Priority = Auto.Priority;
+		Req.Mode = EWorkRequestMode::Count;
+		Req.RemainingCount = FMath::Max(1, Auto.InitialCount);
+
+		const int32 RequestId = WorkSubsystem->AddWorkRequest(Req);
+
+		UE_LOG(LogTemp, Log, TEXT("[Building] AutoWork registered Building=%s Work=%s RequestId=%d"), *BuildingId.ToString(), *Auto.WorkId.ToString(), RequestId);
+	}
 }

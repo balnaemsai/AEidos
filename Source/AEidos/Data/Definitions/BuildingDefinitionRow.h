@@ -6,6 +6,21 @@
 
 class AActor;
 
+USTRUCT(BlueprintType)
+struct FAutoWorkEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	FName WorkId = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	int32 Priority = 0;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	int32 InitialCount = 1;
+};
+
 UENUM(BlueprintType)
 enum class EBuildingCategory : uint8
 {
@@ -61,4 +76,7 @@ struct FBuildingDefinitionRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TArray<FName> RequiredResearchIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TArray<FAutoWorkEntry> AutoWorks;
 };

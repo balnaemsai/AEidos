@@ -6,7 +6,7 @@
 #include "Components/Button.h"
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
-#include "World/Settlement/WorkTypes.h" //FWorkCost
+#include "Core/Types/WorkTypes.h" //FWorkCost
 #include "Engine/Texture2D.h"
 
 void UBuildEntry::NativeConstruct()

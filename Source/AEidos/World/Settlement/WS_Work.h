@@ -7,7 +7,7 @@
 #include "Save/SaveGameSchema.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "Simulation/SimSystem.h"
-#include "WorkTypes.h"
+#include "Core/Types/WorkTypes.h"
 #include "Data/Definitions/WorkDefinitionRow.h"
 #include "WS_Work.generated.h"
 
@@ -93,5 +93,6 @@ private:
 	void HandleInstanceCompleted(const FWorkInstance& Inst);
 
 	FVector ResolveSiteLocationForWork(const FWorkDefinitionRow& Def) const;
+	
 	
 };

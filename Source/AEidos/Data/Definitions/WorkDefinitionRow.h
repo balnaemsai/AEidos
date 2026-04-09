@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
-#include "World/Settlement/WorkTypes.h"
+#include "Core/Types/WorkTypes.h"
 #include "WorkDefinitionRow.generated.h"
 
 USTRUCT(BlueprintType)

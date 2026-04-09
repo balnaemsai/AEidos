@@ -18,7 +18,7 @@ class AEIDOS_API UResourcePanelWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	void SetResources(int32 Food, int32 Wood, int32 Stone, int32 Metal);
+	void SetResources(int32 Food, int32 Wood, int32 Stone, int32 Metal, int32 EP);
 
 protected:
 	UPROPERTY(meta = (BindWidget))
@@ -32,5 +32,8 @@ protected:
 
 	UPROPERTY(meta = (BindWidget))
 	UTextBlock* TxtMetal;
+
+	UPROPERTY(meta = (BindWidget))
+	UTextBlock* TxtEP;
 	
 };

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "EidosAccessInterface.h"
+#include "Save/SaveGameParticipant.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "Simulation/SimSystem.h"
 #include "WS_Economy.generated.h"
@@ -26,7 +27,7 @@ struct FResourceWallet
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEconomyChanged);
 
 UCLASS()
-class AEIDOS_API UWS_Economy : public UWorldSubsystem, public ISimSystem, public IEidosEconomyAccess
+class AEIDOS_API UWS_Economy : public UWorldSubsystem, public ISimSystem, public IEidosEconomyAccess, public ISaveGameParticipant
 {
 	GENERATED_BODY()
 
@@ -36,6 +37,8 @@ public:
 
 	int32 GetAmount(FName ResourceId) const;
 	void AddAmount(FName ResourceId, int32 Delta);
+
+	//simsystem
 
 	virtual void SimPlan_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds) override {}
 	virtual void SimCommit_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds) override {}
@@ -48,6 +51,13 @@ public:
 	virtual void ConsumeCosts_Implementation(const TArray<FWorkCost>& Costs) override;
 	virtual void GrantRewards_Implementation(const TArray<FWorkReward>& Rewards) override;
 	virtual int32 GetResourceAmount_Implementation(FName ResourceId) const override;
+
+	//SaveLoad
+
+	virtual void ApplySnapshot_Implementation(const FEidosWorldSnapshot& Snapshot) override;
+	virtual void WriteToSnapshot_Implementation(FEidosWorldSnapshot& InOutSnapshot) const override;
+
+	
 
 private:
 	UPROPERTY()

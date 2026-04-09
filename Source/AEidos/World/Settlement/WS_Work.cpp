@@ -199,6 +199,11 @@ void UWS_Work::TrySpawnInstancesFromQueue()
 			continue;
 		}
 
+		if (HasActiveInstanceForRequest(Req.RequestId))
+		{
+			continue;
+		}
+
 		const FWorkDefinitionRow* Def = FindDef(Req.WorkId);
 		if (!Def)
 		{
@@ -318,14 +323,20 @@ void UWS_Work::ProgressInstances(float FixedDeltaSeconds)
 
 		float TotalRateThisTick = 0.f;
 
-		for (int32 PageId : Inst.Workers)
+		if (Inst.MaxWorkers == 0)
 		{
-			const float Mult = IEidosPopulationAccess::Execute_ComputeWorkRateMultiplier(PopulationObj, PageId, Inst.WorkId);
-			const float Rate = Def->BaseWorkRate * Mult;
+			TotalRateThisTick = Def->BaseWorkRate;
+		}else
+		{
+			for (int32 PageId : Inst.Workers)
+			{
+				const float Mult = IEidosPopulationAccess::Execute_ComputeWorkRateMultiplier(PopulationObj, PageId, Inst.WorkId);
+				const float Rate = Def->BaseWorkRate * Mult;
 
-			TotalRateThisTick += Rate;
+				TotalRateThisTick += Rate;
+			}
 		}
-
+		
 		Inst.Progress += TotalRateThisTick * FixedDeltaSeconds;
 		UE_LOG(LogTemp, Log, TEXT("[Work] ProgressInstances: Progress is %f"), Inst.Progress);
 

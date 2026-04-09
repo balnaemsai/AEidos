@@ -1,7 +1,7 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
-#include "World/Settlement/WorkTypes.h"
+#include "Core/Types/WorkTypes.h"
 #include "SaveGameSchema.generated.h"
 
 USTRUCT(BlueprintType)

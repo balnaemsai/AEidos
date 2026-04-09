@@ -56,6 +56,7 @@ void UBaseHUDWidget::RefreshResourcePanel()
 	const int32 Wood  = Eco->GetAmount(FName("Wood"));
 	const int32 Stone = Eco->GetAmount(FName("Stone"));
 	const int32 Metal = Eco->GetAmount(FName("Metal"));
+	const int32 EP = Eco->GetAmount(FName("EP"));
 
-	ResourcePanel->SetResources(Food, Wood, Stone, Metal);
+	ResourcePanel->SetResources(Food, Wood, Stone, Metal, EP);
 }

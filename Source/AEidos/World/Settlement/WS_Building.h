@@ -78,6 +78,8 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void LoadBuildingDefs();
 
+	void RegisterAutoWorksForBuilding(FName BuildingId, const FVector& BuildingLocation);
+
 private:
 	const FBuildingDefinitionRow* FindBuildingDef(FName BuildingId) const;
 
