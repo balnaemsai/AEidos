@@ -4,19 +4,17 @@
 #include "World/Settlement/WS_Population.h"
 
 #include "Engine/World.h"
-#include "Kismet/GameplayStatics.h"
-#include "Simulation/WS_SimulationOrchestrator.h"
-#include "Simulation/SimCommandBuffer.h"
 #include "EngineUtils.h"
-
+#include "Kismet/GameplayStatics.h"
+#include "Simulation/SimCommandBuffer.h"
 #include "Entities/Page/PageCharacter.h"
 #include "Entities/Page/Components/StatsComponent.h"
-#include "Entities/Page/Components/SkillComponent.h"
 
 void UWS_Population::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 	bCacheDirty = true;
+	NextPageId = 1;
 
 	if (!TestPageClass)
 	{
@@ -31,7 +29,7 @@ void UWS_Population::Initialize(FSubsystemCollectionBase& Collection)
 		}
 		else
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[SettlementSpace] Failed to load ChunkActor BP class: %s. Fallback to native."), PageBPClassPath);
+			UE_LOG(LogTemp, Warning, TEXT("[Population] Failed to load test page class: %s. Fallback to native."), PageBPClassPath);
 			TestPageClass = APageCharacter::StaticClass();
 		}
 	}
@@ -40,14 +38,13 @@ void UWS_Population::Initialize(FSubsystemCollectionBase& Collection)
 void UWS_Population::Deinitialize()
 {
 	CachedPages.Reset();
+	CachedPagesById.Reset();
 	PlannedDeltas.Reset();
 	Super::Deinitialize();
 }
 
 int32 UWS_Population::GetSimOrder_Implementation() const
 {
-	// Work/Economy와 순서 조정 가능
-	// 예: Population(10) -> Work(20) -> Economy(30)
 	return 10;
 }
 
@@ -59,6 +56,7 @@ void UWS_Population::RebuildCacheIfNeeded()
 	}
 
 	CachedPages.Reset();
+	CachedPagesById.Reset();
 
 	UWorld* World = GetWorld();
 	if (!World)
@@ -69,29 +67,86 @@ void UWS_Population::RebuildCacheIfNeeded()
 	TArray<AActor*> Found;
 	UGameplayStatics::GetAllActorsOfClass(World, APageCharacter::StaticClass(), Found);
 
-	for (AActor* A : Found)
+	for (AActor* Actor : Found)
 	{
-		if (APageCharacter* P = Cast<APageCharacter>(A))
+		APageCharacter* Page = Cast<APageCharacter>(Actor);
+		if (!Page)
 		{
-			CachedPages.Add(P);
+			continue;
 		}
+
+		const int32 PageId = EnsurePageEntityId(Page);
+		CachedPages.Add(Page);
+		CachedPagesById.Add(PageId, Page);
+		ResetPageRuntimeState(Page);
 	}
 
-	PlannedDeltas.SetNum(CachedPages.Num());
-	for (FPageStatsDelta& D : PlannedDeltas)
+	CachedPages.Sort([](const TWeakObjectPtr<APageCharacter>& A, const TWeakObjectPtr<APageCharacter>& B)
 	{
-		D = FPageStatsDelta{};
+		const APageCharacter* PageA = A.Get();
+		const APageCharacter* PageB = B.Get();
+		if (!PageA || !PageB)
+		{
+			return PageA != nullptr;
+		}
+		return PageA->GetPageEntityId() < PageB->GetPageEntityId();
+	});
+
+	PlannedDeltas.SetNum(CachedPages.Num());
+	for (FPageStatsDelta& Delta : PlannedDeltas)
+	{
+		Delta = FPageStatsDelta{};
 	}
 
 	bCacheDirty = false;
+}
+
+int32 UWS_Population::EnsurePageEntityId(APageCharacter* Page)
+{
+	if (!Page)
+	{
+		return INDEX_NONE;
+	}
+
+	int32 PageId = Page->GetPageEntityId();
+	const bool bDuplicateId = PageId > 0 && CachedPagesById.Contains(PageId) && CachedPagesById.FindRef(PageId).Get() != Page;
+	if (PageId <= 0 || bDuplicateId)
+	{
+		PageId = NextPageId++;
+		Page->SetPageEntityId(PageId);
+	}
+
+	NextPageId = FMath::Max(NextPageId, PageId + 1);
+	return PageId;
+}
+
+APageCharacter* UWS_Population::FindPageById(int32 PageId) const
+{
+	if (const TWeakObjectPtr<APageCharacter>* Found = CachedPagesById.Find(PageId))
+	{
+		return Found->Get();
+	}
+
+	return nullptr;
+}
+
+void UWS_Population::ResetPageRuntimeState(APageCharacter* Page) const
+{
+	if (!Page)
+	{
+		return;
+	}
+
+	if (!Page->CurrentJobState.bIsActive)
+	{
+		Page->CurrentJobState = FPageJobState{};
+	}
 }
 
 void UWS_Population::SimPlan_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds)
 {
 	RebuildCacheIfNeeded();
 
-	// 예시 규칙: 게임시간 1초(=FixedTick 1회)마다 허기/피로 증가
-	// (네 Orchestrator에서 FixedTickHz=24면, 1틱=게임 1초라는 네 정의에 맞춤)
 	for (int32 i = 0; i < CachedPages.Num(); ++i)
 	{
 		APageCharacter* Page = CachedPages[i].Get();
@@ -100,8 +155,6 @@ void UWS_Population::SimPlan_Implementation(USimCommandBuffer* CommandBuffer, fl
 			continue;
 		}
 
-		// 여기서 FixedDeltaSeconds는 “게임 1초”로 쓰겠다는 네 정의면 굳이 곱하지 않아도 됨.
-		// 일단 규칙값을 작게 잡아 예시로:
 		PlannedDeltas[i].HungerDelta = 0.05f;
 		PlannedDeltas[i].FatigueDelta = 0.03f;
 	}
@@ -114,11 +167,10 @@ void UWS_Population::SimCommit_Implementation(USimCommandBuffer* CommandBuffer, 
 		return;
 	}
 
-	// 변경은 Flush에서만 일어나도록 커맨드로 예약
 	for (int32 i = 0; i < CachedPages.Num(); ++i)
 	{
 		TWeakObjectPtr<APageCharacter> WeakPage = CachedPages[i];
-		const FPageStatsDelta Delta = PlannedDeltas[i];
+		const FPageStatsDelta Delta = PlannedDeltas.IsValidIndex(i) ? PlannedDeltas[i] : FPageStatsDelta{};
 
 		CommandBuffer->Enqueue([WeakPage, Delta]()
 		{
@@ -135,16 +187,21 @@ void UWS_Population::SimCommit_Implementation(USimCommandBuffer* CommandBuffer, 
 
 void UWS_Population::SimPost_Implementation(float FixedDeltaSeconds)
 {
-	// 필요 시: 변경된 페이지 목록 브로드캐스트 / 통계 / 로그 등
 }
 
 void UWS_Population::EnsureTestPageSpawned()
 {
-	if (!bSpawnTestPage) return;
+	if (!bSpawnTestPage)
+	{
+		return;
+	}
 
 	UWorld* World = GetWorld();
-	if (!World) return;
-	
+	if (!World)
+	{
+		return;
+	}
+
 	bool bAnyPageExists = false;
 	for (TActorIterator<APageCharacter> It(World); It; ++It)
 	{
@@ -153,19 +210,20 @@ void UWS_Population::EnsureTestPageSpawned()
 	}
 
 	if (bAnyPageExists)
-		return;
-
-	TSubclassOf<APageCharacter> SpawnClass = TestPageClass;
-	if (!SpawnClass)
 	{
-		SpawnClass = APageCharacter::StaticClass();
+		return;
 	}
+
+	TSubclassOf<APageCharacter> SpawnClass = TestPageClass ? TestPageClass : APageCharacter::StaticClass();
 
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
-	World->SpawnActor<APageCharacter>(SpawnClass, TestSpawnLocation, FRotator::ZeroRotator, Params);
-	
+	if (APageCharacter* Spawned = World->SpawnActor<APageCharacter>(SpawnClass, TestSpawnLocation, FRotator::ZeroRotator, Params))
+	{
+		Spawned->SetPageEntityId(NextPageId++);
+	}
+
 	bCacheDirty = true;
 }
 
@@ -175,29 +233,15 @@ TArray<int32> UWS_Population::GetAllPageIds_Implementation() const
 	MutableThis->RebuildCacheIfNeeded();
 
 	TArray<int32> Result;
-	Result.Reserve(MutableThis->CachedPages.Num());
-
-	for (int32 i = 0; i < MutableThis->CachedPages.Num(); ++i)
-	{
-		if (MutableThis->CachedPages[i].IsValid())
-		{
-			Result.Add(i);
-		}
-	}
-
+	MutableThis->CachedPagesById.GetKeys(Result);
+	Result.Sort();
 	return Result;
 }
 
 AActor* UWS_Population::GetPageActor_Implementation(int32 PageId)
 {
 	RebuildCacheIfNeeded();
-
-	if (!CachedPages.IsValidIndex(PageId))
-	{
-		return nullptr;
-	}
-
-	return CachedPages[PageId].Get();
+	return FindPageById(PageId);
 }
 
 bool UWS_Population::IsPageAvailable_Implementation(int32 PageId) const
@@ -205,20 +249,13 @@ bool UWS_Population::IsPageAvailable_Implementation(int32 PageId) const
 	UWS_Population* MutableThis = const_cast<UWS_Population*>(this);
 	MutableThis->RebuildCacheIfNeeded();
 
-	if (!MutableThis->CachedPages.IsValidIndex(PageId))
-	{
-		return false;
-	}
-
-	APageCharacter* Page = MutableThis->CachedPages[PageId].Get();
+	APageCharacter* Page = MutableThis->FindPageById(PageId);
 	if (!Page)
 	{
 		return false;
 	}
 
-	// TODO:
-	// 나중엔 현재 job 상태, down 상태, 수면 상태 등을 반영
-	return true;
+	return !Page->CurrentJobState.bIsActive;
 }
 
 float UWS_Population::ComputeWorkRateMultiplier_Implementation(int32 PageId, FName WorkId) const
@@ -226,22 +263,12 @@ float UWS_Population::ComputeWorkRateMultiplier_Implementation(int32 PageId, FNa
 	UWS_Population* MutableThis = const_cast<UWS_Population*>(this);
 	MutableThis->RebuildCacheIfNeeded();
 
-	if (!MutableThis->CachedPages.IsValidIndex(PageId))
-	{
-		return 1.f;
-	}
-
-	APageCharacter* Page = MutableThis->CachedPages[PageId].Get();
+	APageCharacter* Page = MutableThis->FindPageById(PageId);
 	if (!Page)
 	{
 		return 1.f;
 	}
 
-	// 가장 단순한 현재 구조:
-	// WorkId == SkillId 라고 가정하거나,
-	// 나중에 DT_Work에서 PrimarySkillId를 꺼내 Population 쪽에서 사용하도록 확장 가능
-
-	//UE_LOG(LogTemp, Log, TEXT("[Population] ComputeWorkRate: Skillmultiplier is %f"), Page->GetSkillMultiplier(WorkId));
 	return Page->GetSkillMultiplier(WorkId);
 }
 
@@ -249,17 +276,143 @@ void UWS_Population::ApplyWorkCompletionEffects_Implementation(int32 PageId, FNa
 {
 	RebuildCacheIfNeeded();
 
-	if (!CachedPages.IsValidIndex(PageId))
+	if (APageCharacter* Page = FindPageById(PageId))
+	{
+		Page->CurrentJobState = FPageJobState{};
+	}
+}
+
+void UWS_Population::AssignPageToWork_Implementation(int32 PageId, int32 InstanceId, FName WorkId, FVector WorkLocation, int32 Priority)
+{
+	RebuildCacheIfNeeded();
+
+	if (APageCharacter* Page = FindPageById(PageId))
+	{
+		Page->CurrentJobState.InstanceId = InstanceId;
+		Page->CurrentJobState.WorkId = WorkId;
+		Page->CurrentJobState.Priority = Priority;
+		Page->CurrentJobState.WorkLocation = WorkLocation;
+		Page->CurrentJobState.bIsActive = true;
+	}
+}
+
+void UWS_Population::ClearPageWorkAssignment_Implementation(int32 PageId, int32 InstanceId)
+{
+	RebuildCacheIfNeeded();
+
+	if (APageCharacter* Page = FindPageById(PageId))
+	{
+		if (InstanceId == INDEX_NONE || Page->CurrentJobState.InstanceId == InstanceId)
+		{
+			Page->CurrentJobState = FPageJobState{};
+		}
+	}
+}
+
+void UWS_Population::WriteToSnapshot_Implementation(FEidosWorldSnapshot& InOutSnapshot) const
+{
+	UWS_Population* MutableThis = const_cast<UWS_Population*>(this);
+	MutableThis->RebuildCacheIfNeeded();
+
+	InOutSnapshot.Population.NextPageId = NextPageId;
+	InOutSnapshot.Population.Pages.Reset();
+
+	for (const TWeakObjectPtr<APageCharacter>& WeakPage : CachedPages)
+	{
+		const APageCharacter* Page = WeakPage.Get();
+		if (!Page)
+		{
+			continue;
+		}
+
+		FEidosPageSnapshot PageSnapshot;
+		PageSnapshot.PageId = Page->GetPageEntityId();
+		PageSnapshot.Transform = Page->GetActorTransform();
+		PageSnapshot.PageClass = FSoftClassPath(Page->GetClass());
+		InOutSnapshot.Population.Pages.Add(PageSnapshot);
+	}
+}
+
+void UWS_Population::ApplySnapshot_Implementation(const FEidosWorldSnapshot& Snapshot)
+{
+	UWorld* World = GetWorld();
+	if (!World)
 	{
 		return;
 	}
 
-	APageCharacter* Page = CachedPages[PageId].Get();
-	if (!Page)
+	NextPageId = FMath::Max(1, Snapshot.Population.NextPageId);
+	bCacheDirty = true;
+	RebuildCacheIfNeeded();
+
+	TMap<int32, APageCharacter*> ExistingById;
+	TArray<APageCharacter*> UnassignedExisting;
+	for (const TWeakObjectPtr<APageCharacter>& WeakPage : CachedPages)
 	{
-		return;
+		if (APageCharacter* Page = WeakPage.Get())
+		{
+			Page->CurrentJobState = FPageJobState{};
+			if (Page->GetPageEntityId() > 0)
+			{
+				ExistingById.Add(Page->GetPageEntityId(), Page);
+			}
+			else
+			{
+				UnassignedExisting.Add(Page);
+			}
+		}
 	}
 
-	// 완료 보너스 XP 같은 게 필요하면 여기서 지급
-	// 현재는 WS_Work의 진행 중 XP 지급 구조가 있으므로 비워둬도 됨
+	TSet<APageCharacter*> MatchedPages;
+	for (const FEidosPageSnapshot& PageSnapshot : Snapshot.Population.Pages)
+	{
+		APageCharacter* Page = ExistingById.FindRef(PageSnapshot.PageId);
+		if (!Page && UnassignedExisting.Num() > 0)
+		{
+			Page = UnassignedExisting[0];
+			UnassignedExisting.RemoveAt(0);
+		}
+
+		if (!Page)
+		{
+			UClass* SpawnClass = PageSnapshot.PageClass.TryLoadClass<APageCharacter>();
+			if (!SpawnClass)
+			{
+				SpawnClass = TestPageClass ? *TestPageClass : APageCharacter::StaticClass();
+			}
+
+			FActorSpawnParameters Params;
+			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+			Page = World->SpawnActor<APageCharacter>(
+				SpawnClass,
+				PageSnapshot.Transform.GetLocation(),
+				PageSnapshot.Transform.Rotator(),
+				Params);
+		}
+
+		if (!Page)
+		{
+			continue;
+		}
+
+		Page->SetPageEntityId(PageSnapshot.PageId);
+		Page->SetActorTransform(PageSnapshot.Transform);
+		Page->CurrentJobState = FPageJobState{};
+		MatchedPages.Add(Page);
+		NextPageId = FMath::Max(NextPageId, PageSnapshot.PageId + 1);
+	}
+
+	for (const TWeakObjectPtr<APageCharacter>& WeakPage : CachedPages)
+	{
+		if (APageCharacter* Page = WeakPage.Get())
+		{
+			if (!MatchedPages.Contains(Page))
+			{
+				Page->Destroy();
+			}
+		}
+	}
+
+	bCacheDirty = true;
+	RebuildCacheIfNeeded();
 }

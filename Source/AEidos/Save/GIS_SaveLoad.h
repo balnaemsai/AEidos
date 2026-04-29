@@ -38,6 +38,7 @@ public:
 private:
 	FEidosWorldSnapshot CaptureWorldSnapshot(UWorld& World) const;
 	void DispatchApplySnapshot(UWorld& World, const FEidosWorldSnapshot& Snapshot);
+	void GatherSaveParticipants(UWorld& World, TArray<UObject*>& OutParticipants) const;
 
 private:
 	UPROPERTY(Transient)

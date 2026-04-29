@@ -165,7 +165,6 @@ void UWS_Economy::ApplySnapshot_Implementation(const FEidosWorldSnapshot& Snapsh
 	}
 
 	const TArray<FName> ResourceIds = Registry->GetAllResourceIds();
-
 	for (const FName ResourceId : ResourceIds)
 	{
 		const FResourceDefinitionRow* Def = Registry->GetResourceDef(ResourceId);
@@ -174,14 +173,9 @@ void UWS_Economy::ApplySnapshot_Implementation(const FEidosWorldSnapshot& Snapsh
 			continue;
 		}
 
-		const FName SnapshotKey(*FString::Printf(TEXT("Economy.Resource.%s"), *ResourceId.ToString()));
-		const FString DefaultValue = FString::FromInt(Def->DefaultStartingAmount);
-		const FString SavedValue = Snapshot.GetKVString(SnapshotKey, DefaultValue);
-		const int32 Amount = FCString::Atoi(*SavedValue);
-
+		const int32* SavedAmount = Snapshot.Economy.ResourceAmounts.Find(ResourceId);
+		const int32 Amount = SavedAmount ? *SavedAmount : Def->DefaultStartingAmount;
 		Wallet.Amounts.Add(ResourceId, Amount);
-
-		UE_LOG(LogTemp, Log, TEXT("[Economy] ApplySnapshot %s = %d"), *ResourceId.ToString(), Amount);
 	}
 
 	bDirty = true;
@@ -189,7 +183,7 @@ void UWS_Economy::ApplySnapshot_Implementation(const FEidosWorldSnapshot& Snapsh
 
 void UWS_Economy::WriteToSnapshot_Implementation(FEidosWorldSnapshot& InOutSnapshot) const
 {
-	
+	InOutSnapshot.Economy.ResourceAmounts = Wallet.Amounts;
 }
 
 

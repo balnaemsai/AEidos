@@ -10,6 +10,16 @@ enum class EWorkRequestMode : uint8
 	Repeat
 };
 
+UENUM(BlueprintType)
+enum class EWorkRequestLifecycleState : uint8
+{
+	Queued,
+	Active,
+	Completed,
+	Cancelled,
+	Failed
+};
+
 USTRUCT(BlueprintType)
 struct FWorkCost
 {

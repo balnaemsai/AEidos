@@ -5,14 +5,16 @@
 
 #include "Data/GIS_DataRegistry.h"
 #include "Data/Definitions/BuildingDefinitionRow.h"
-#include "World/Settlement/WS_Work.h"
-#include "World/Settlement/WS_Economy.h"
+#include "Data/Definitions/WorkDefinitionRow.h"
 #include "Engine/DataTable.h"
+#include "Engine/GameInstance.h"
 #include "Engine/World.h"
-#include "GameFramework/Actor.h"
 #include "Simulation/SimCommandBuffer.h"
-#include "World/Settlement/Building/ConstructionSiteActor.h"
+#include "World/Settlement/EidosAccessInterface.h"
+#include "World/Settlement/WS_Economy.h"
+#include "World/Settlement/WS_Work.h"
 #include "World/Settlement/Building/BuildingActorBase.h"
+#include "World/Settlement/Building/ConstructionSiteActor.h"
 
 void UWS_Building::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -20,6 +22,21 @@ void UWS_Building::Initialize(FSubsystemCollectionBase& Collection)
 
 	Collection.InitializeDependency<UWS_Work>();
 	WorkSubsystem = GetWorld()->GetSubsystem<UWS_Work>();
+	if (WorkSubsystem)
+	{
+		WorkSubsystem->OnWorkRequestStateChanged.AddUObject(this, &UWS_Building::HandleWorkRequestStateChanged);
+	}
+}
+
+void UWS_Building::Deinitialize()
+{
+	if (WorkSubsystem)
+	{
+		WorkSubsystem->OnWorkRequestStateChanged.RemoveAll(this);
+	}
+
+	DestroyAllRuntimeActors();
+	Super::Deinitialize();
 }
 
 void UWS_Building::LoadBuildingDefs()
@@ -44,56 +61,59 @@ void UWS_Building::LoadBuildingDefs()
 		return;
 	}
 
-	UDataTable* DT = Registry->FindDataTableByName(TEXT("DT_Building"));
-	if (!DT)
+	UDataTable* Table = Registry->FindDataTableByName(TEXT("DT_Building"));
+	if (!Table)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Building] DT_Building not found"));
 		return;
 	}
-	
-	TArray<FBuildingDefinitionRow*> Rows;
-	DT->GetAllRows(TEXT("WS_Building::LoadBuildingDefs"), Rows);
 
+	TArray<FBuildingDefinitionRow*> Rows;
+	Table->GetAllRows(TEXT("WS_Building::LoadBuildingDefs"), Rows);
 	for (const FBuildingDefinitionRow* Row : Rows)
 	{
-		if (!Row)
+		if (Row)
 		{
-			continue;
+			BuildingDefs.Add(Row->BuildingId, *Row);
 		}
-		BuildingDefs.Add(Row->BuildingId, *Row);
 	}
-
-	UE_LOG(LogTemp, Log, TEXT("[Building] Loaded defs: %d"), BuildingDefs.Num());
 }
 
 const FBuildingDefinitionRow* UWS_Building::FindBuildingDef(FName BuildingId) const
 {
-	if (const FBuildingDefinitionRow* Found = BuildingDefs.Find(BuildingId))
-	{
-		return Found;
-	}
+	return BuildingDefs.Find(BuildingId);
+}
 
-	UE_LOG(LogTemp, Warning, TEXT("[Building] Missing BuildingDef: %s"), *BuildingId.ToString());
-	return nullptr;
+FConstructionSiteState* UWS_Building::FindConstructionSiteById(int32 SiteId)
+{
+	return ConstructionSites.FindByPredicate([&](const FConstructionSiteState& Site)
+	{
+		return Site.SiteId == SiteId;
+	});
+}
+
+FConstructionSiteState* UWS_Building::FindConstructionSiteByRequestId(int32 WorkRequestId)
+{
+	return ConstructionSites.FindByPredicate([&](const FConstructionSiteState& Site)
+	{
+		return Site.WorkRequestId == WorkRequestId;
+	});
 }
 
 bool UWS_Building::IntersectsAnyPlacedOrConstruction(const FBuildingDefinitionRow& Def, FVector Location) const
 {
 	const FVector2D Half = Def.Footprint * 0.5f;
+	const FVector2D Center(Location.X, Location.Y);
 
-	auto Overlap2D = [](const FVector2D& ACenter, const FVector2D& AHalf, const FVector2D& BCenter,
-	                    const FVector2D& BHalf)
+	auto Overlap2D = [](const FVector2D& ACenter, const FVector2D& AHalf, const FVector2D& BCenter, const FVector2D& BHalf)
 	{
 		return FMath::Abs(ACenter.X - BCenter.X) <= (AHalf.X + BHalf.X)
 			&& FMath::Abs(ACenter.Y - BCenter.Y) <= (AHalf.Y + BHalf.Y);
 	};
 
-	const FVector2D Center(Location.X, Location.Y);
-
-	// 공사장끼리 겹침 방지
 	for (const FConstructionSiteState& Site : ConstructionSites)
 	{
-		if (Site.bCompleted)
+		if (Site.State == EConstructionSiteLifecycle::Cancelled || Site.State == EConstructionSiteLifecycle::Failed)
 		{
 			continue;
 		}
@@ -106,30 +126,6 @@ bool UWS_Building::IntersectsAnyPlacedOrConstruction(const FBuildingDefinitionRo
 
 		const FVector2D OtherCenter(Site.Location.X, Site.Location.Y);
 		const FVector2D OtherHalf = OtherDef->Footprint * 0.5f;
-
-		if (Overlap2D(Center, Half, OtherCenter, OtherHalf))
-		{
-			return true;
-		}
-	}
-
-	// 완공된 건물 Actor와 겹침 방지
-	for (const FConstructionSiteState& Site : ConstructionSites)
-	{
-		if (!Site.bCompleted)
-		{
-			continue;
-		}
-
-		const FBuildingDefinitionRow* OtherDef = FindBuildingDef(Site.BuildingId);
-		if (!OtherDef)
-		{
-			continue;
-		}
-
-		const FVector2D OtherCenter(Site.Location.X, Site.Location.Y);
-		const FVector2D OtherHalf = OtherDef->Footprint * 0.5f;
-
 		if (Overlap2D(Center, Half, OtherCenter, OtherHalf))
 		{
 			return true;
@@ -141,7 +137,6 @@ bool UWS_Building::IntersectsAnyPlacedOrConstruction(const FBuildingDefinitionRo
 
 bool UWS_Building::ValidatePlacement(FName BuildingId, FVector Location, float YawDeg, FString& OutReason) const
 {
-	
 	const FBuildingDefinitionRow* Def = FindBuildingDef(BuildingId);
 	if (!Def)
 	{
@@ -155,11 +150,6 @@ bool UWS_Building::ValidatePlacement(FName BuildingId, FVector Location, float Y
 		return false;
 	}
 
-	// TODO:
-	// 1) SettlementSpace 범위 체크
-	// 2) 경로 봉쇄 체크
-	// 3) 지형/바닥 조건 체크
-
 	OutReason.Empty();
 	return true;
 }
@@ -172,31 +162,15 @@ int32 UWS_Building::CreateConstructionSite(FName BuildingId, FVector Location, f
 	Site.Location = Location;
 	Site.YawDeg = YawDeg;
 	Site.WorkRequestId = WorkRequestId;
-	Site.bCompleted = false;
+	Site.State = EConstructionSiteLifecycle::Queued;
+	ConstructionSites.Add(Site);
 
-	const FBuildingDefinitionRow* Def = FindBuildingDef(BuildingId);
-	if (Def && Def->ConstructionSiteActorClass.IsValid())
+	FConstructionSiteState* AddedSite = FindConstructionSiteById(Site.SiteId);
+	if (AddedSite)
 	{
-		UClass* SpawnClass = Def->ConstructionSiteActorClass.LoadSynchronous();
-		if (SpawnClass)
-		{
-			FActorSpawnParameters Params;
-			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-			AActor* Spawned = GetWorld()->SpawnActor<AActor>(SpawnClass, Location + FVector(0.f, 0.f, Def->ZOffset),FRotator(0.f, YawDeg, 0.f), Params);
-
-			Site.SiteActor = Spawned;
-
-			if (AConstructionSiteActor* SiteActor = Cast<AConstructionSiteActor>(Spawned))
-			{
-				SiteActor->InitializeConstructionSite(Site.SiteId, BuildingId, WorkRequestId);
-				SiteActor->SetFootprint(Def->Footprint);
-				SiteActor->SetPreviewValid(true);
-			}
-		}
+		SpawnConstructionSiteActor(*AddedSite);
 	}
 
-	ConstructionSites.Add(Site);
 	return Site.SiteId;
 }
 
@@ -204,14 +178,12 @@ int32 UWS_Building::RequestBuild(FName BuildingId, FVector Location, float YawDe
 {
 	if (!WorkSubsystem)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Building] WorkSubsystem missing"));
 		return INDEX_NONE;
 	}
 
 	UWS_Economy* Economy = GetWorld() ? GetWorld()->GetSubsystem<UWS_Economy>() : nullptr;
 	if (!Economy)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Building] EconomySubsystem missing"));
 		return INDEX_NONE;
 	}
 
@@ -224,52 +196,77 @@ int32 UWS_Building::RequestBuild(FName BuildingId, FVector Location, float YawDe
 	FString Reason;
 	if (!ValidatePlacement(BuildingId, Location, YawDeg, Reason))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Building] RequestBuild failed: %s"), *Reason);
 		return INDEX_NONE;
 	}
 
-	UGIS_DataRegistry* DR = GetWorld()->GetGameInstance()->GetSubsystem<UGIS_DataRegistry>();
-	const FWorkDefinitionRow* WorkDef = DR->GetWorkDef(Def->BuildWorkId);
+	UGIS_DataRegistry* Registry = GetWorld()->GetGameInstance()->GetSubsystem<UGIS_DataRegistry>();
+	const FWorkDefinitionRow* WorkDef = Registry ? Registry->GetWorkDef(Def->BuildWorkId) : nullptr;
+	if (!WorkDef)
+	{
+		return INDEX_NONE;
+	}
 
 	if (!IEidosEconomyAccess::Execute_CanAfford(Economy, WorkDef->Costs))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Building] Cannot afford build costs for %s"), *BuildingId.ToString());
 		return INDEX_NONE;
 	}
 
-	FWorkRequest Req;
-	Req.WorkId = Def->BuildWorkId;
-	Req.Mode = EWorkRequestMode::Count;
-	Req.RemainingCount = 1;
-	Req.Priority = 100;
+	FWorkRequest Request;
+	Request.WorkId = Def->BuildWorkId;
+	Request.Mode = EWorkRequestMode::Count;
+	Request.RemainingCount = 1;
+	Request.Priority = 100;
 
-	const int32 RequestId = WorkSubsystem->AddWorkRequest(Req);
+	const int32 RequestId = WorkSubsystem->AddWorkRequest(Request);
 	if (RequestId == INDEX_NONE)
 	{
 		return INDEX_NONE;
 	}
 
 	CreateConstructionSite(BuildingId, Location, YawDeg, RequestId);
-
-	UE_LOG(LogTemp, Log, TEXT("[Building] RequestBuild BuildingId=%s RequestId=%d"), *BuildingId.ToString(), RequestId);
-
 	return RequestId;
 }
 
-void UWS_Building::FinalizeBuilding(int32 SiteId)
+void UWS_Building::HandleWorkRequestStateChanged(int32 WorkRequestId, EWorkRequestLifecycleState NewState)
 {
-	FConstructionSiteState* Site = ConstructionSites.FindByPredicate([&](const FConstructionSiteState& S)
-	{
-		return S.SiteId == SiteId;
-	});
-
-	if (!Site || Site->bCompleted)
+	FConstructionSiteState* Site = FindConstructionSiteByRequestId(WorkRequestId);
+	if (!Site)
 	{
 		return;
 	}
 
-	const FBuildingDefinitionRow* Def = FindBuildingDef(Site->BuildingId);
-	if (!Def)
+	switch (NewState)
+	{
+	case EWorkRequestLifecycleState::Queued:
+		Site->State = EConstructionSiteLifecycle::Queued;
+		break;
+	case EWorkRequestLifecycleState::Active:
+		Site->State = EConstructionSiteLifecycle::InProgress;
+		break;
+	case EWorkRequestLifecycleState::Completed:
+		Site->State = EConstructionSiteLifecycle::AwaitingFinalization;
+		PendingFinalizeSiteIds.AddUnique(Site->SiteId);
+		break;
+	case EWorkRequestLifecycleState::Cancelled:
+		Site->State = EConstructionSiteLifecycle::Cancelled;
+		if (Site->SiteActor.IsValid())
+		{
+			Site->SiteActor->Destroy();
+			Site->SiteActor = nullptr;
+		}
+		break;
+	case EWorkRequestLifecycleState::Failed:
+		Site->State = EConstructionSiteLifecycle::Failed;
+		break;
+	default:
+		break;
+	}
+}
+
+void UWS_Building::FinalizeBuilding(int32 SiteId)
+{
+	FConstructionSiteState* Site = FindConstructionSiteById(SiteId);
+	if (!Site || Site->State == EConstructionSiteLifecycle::Completed)
 	{
 		return;
 	}
@@ -280,33 +277,8 @@ void UWS_Building::FinalizeBuilding(int32 SiteId)
 		Site->SiteActor = nullptr;
 	}
 
-	if (!Def->BuildingActorClass.IsNull())
-	{
-		UE_LOG(LogTemp, Log, TEXT("[Building]Finalize: IsValid"));
-		UClass* SpawnClass = Def->BuildingActorClass.LoadSynchronous();
-		if (SpawnClass)
-		{
-			FActorSpawnParameters Params;
-			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-			AActor* Spawned = GetWorld()->SpawnActor<AActor>(SpawnClass,Site->Location + FVector(0.f, 0.f, Def->ZOffset),FRotator(0.f, Site->YawDeg, 0.f), Params);
-
-			RegisterAutoWorksForBuilding(Def->BuildingId, Spawned->GetActorLocation());
-
-			Site->FinalActor = Spawned;
-			
-			if (ABuildingActorBase* BuildingActor = Cast<ABuildingActorBase>(Spawned))
-			{
-				BuildingActor->InitializeBuilding(Site->BuildingId, 1);
-				BuildingActor->SetFootprint(Def->Footprint);
-				BuildingActor->SetBuildingActive(true);
-			}
-		}
-	}
-
-	Site->bCompleted = true;
-
-	UE_LOG(LogTemp, Log, TEXT("[Building] Finalized SiteId=%d BuildingId=%s"), SiteId, *Site->BuildingId.ToString());
+	SpawnFinalBuildingActor(*Site, true);
+	Site->State = EConstructionSiteLifecycle::Completed;
 }
 
 void UWS_Building::CleanupInvalidActors()
@@ -324,31 +296,125 @@ void UWS_Building::CleanupInvalidActors()
 	}
 }
 
-void UWS_Building::SimPlan_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds)
+void UWS_Building::DestroyAllRuntimeActors()
 {
-	PlannedCompletedSiteIds.Reset();
+	for (FConstructionSiteState& Site : ConstructionSites)
+	{
+		if (Site.SiteActor.IsValid())
+		{
+			Site.SiteActor->Destroy();
+			Site.SiteActor = nullptr;
+		}
+		if (Site.FinalActor.IsValid())
+		{
+			Site.FinalActor->Destroy();
+			Site.FinalActor = nullptr;
+		}
+	}
+}
 
-	if (!WorkSubsystem)
+void UWS_Building::SpawnConstructionSiteActor(FConstructionSiteState& Site)
+{
+	if (Site.SiteActor.IsValid())
 	{
 		return;
 	}
 
-	// 공사 Work 요청이 더 이상 queue에도 없고 active에도 없으면 완료로 본다.
-	for (const FConstructionSiteState& Site : ConstructionSites)
+	const FBuildingDefinitionRow* Def = FindBuildingDef(Site.BuildingId);
+	if (!Def || Def->ConstructionSiteActorClass.IsNull())
 	{
-		if (Site.bCompleted)
-		{
-			continue;
-		}
-
-		const bool bQueued = WorkSubsystem->HasQueuedRequest(Site.WorkRequestId);
-		const bool bActive = WorkSubsystem->HasActiveInstanceForRequest(Site.WorkRequestId);
-
-		if (!bQueued && !bActive)
-		{
-			PlannedCompletedSiteIds.Add(Site.SiteId);
-		}
+		return;
 	}
+
+	UClass* SpawnClass = Def->ConstructionSiteActorClass.LoadSynchronous();
+	if (!SpawnClass)
+	{
+		return;
+	}
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	AActor* Spawned = GetWorld()->SpawnActor<AActor>(
+		SpawnClass,
+		Site.Location + FVector(0.f, 0.f, Def->ZOffset),
+		FRotator(0.f, Site.YawDeg, 0.f),
+		Params);
+
+	Site.SiteActor = Spawned;
+	if (AConstructionSiteActor* SiteActor = Cast<AConstructionSiteActor>(Spawned))
+	{
+		SiteActor->InitializeConstructionSite(Site.SiteId, Site.BuildingId, Site.WorkRequestId);
+		SiteActor->SetFootprint(Def->Footprint);
+		SiteActor->SetPreviewValid(true);
+	}
+}
+
+void UWS_Building::SpawnFinalBuildingActor(FConstructionSiteState& Site, bool bRegisterAutoWorks)
+{
+	if (Site.FinalActor.IsValid())
+	{
+		return;
+	}
+
+	const FBuildingDefinitionRow* Def = FindBuildingDef(Site.BuildingId);
+	if (!Def || Def->BuildingActorClass.IsNull())
+	{
+		return;
+	}
+
+	UClass* SpawnClass = Def->BuildingActorClass.LoadSynchronous();
+	if (!SpawnClass)
+	{
+		return;
+	}
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	AActor* Spawned = GetWorld()->SpawnActor<AActor>(
+		SpawnClass,
+		Site.Location + FVector(0.f, 0.f, Def->ZOffset),
+		FRotator(0.f, Site.YawDeg, 0.f),
+		Params);
+
+	Site.FinalActor = Spawned;
+	if (ABuildingActorBase* BuildingActor = Cast<ABuildingActorBase>(Spawned))
+	{
+		BuildingActor->InitializeBuilding(Site.BuildingId, 1);
+		BuildingActor->SetFootprint(Def->Footprint);
+		BuildingActor->SetBuildingActive(true);
+	}
+
+	if (bRegisterAutoWorks && Spawned)
+	{
+		RegisterAutoWorksForBuilding(Def->BuildingId, Spawned->GetActorLocation());
+	}
+}
+
+void UWS_Building::RespawnActorsForSite(FConstructionSiteState& Site, bool bRegisterAutoWorks)
+{
+	switch (Site.State)
+	{
+	case EConstructionSiteLifecycle::Queued:
+	case EConstructionSiteLifecycle::InProgress:
+	case EConstructionSiteLifecycle::AwaitingFinalization:
+		SpawnConstructionSiteActor(Site);
+		break;
+	case EConstructionSiteLifecycle::Completed:
+		SpawnFinalBuildingActor(Site, bRegisterAutoWorks);
+		break;
+	case EConstructionSiteLifecycle::Cancelled:
+	case EConstructionSiteLifecycle::Failed:
+	default:
+		break;
+	}
+}
+
+void UWS_Building::SimPlan_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds)
+{
+	PlannedFinalizeSiteIds = PendingFinalizeSiteIds;
+	PendingFinalizeSiteIds.Reset();
 }
 
 void UWS_Building::SimCommit_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds)
@@ -359,8 +425,7 @@ void UWS_Building::SimCommit_Implementation(USimCommandBuffer* CommandBuffer, fl
 	}
 
 	TWeakObjectPtr<UWS_Building> WeakThis(this);
-
-	for (const int32 SiteId : PlannedCompletedSiteIds)
+	for (int32 SiteId : PlannedFinalizeSiteIds)
 	{
 		CommandBuffer->Enqueue([WeakThis, SiteId]()
 		{
@@ -379,14 +444,51 @@ void UWS_Building::SimPost_Implementation(float FixedDeltaSeconds)
 
 void UWS_Building::WriteToSnapshot_Implementation(FEidosWorldSnapshot& OutSnapshot) const
 {
-	// MVP 단계에서는 건설 사이트/완공 건물 최소 상태만 별도 직렬화 권장
-	// 지금은 생략. 이후 Building JSON snapshot으로 확장.
+	OutSnapshot.Buildings.NextSiteId = NextSiteId;
+	OutSnapshot.Buildings.Sites.Reset();
+
+	for (const FConstructionSiteState& Site : ConstructionSites)
+	{
+		FEidosConstructionSiteSnapshot SiteSnapshot;
+		SiteSnapshot.SiteId = Site.SiteId;
+		SiteSnapshot.BuildingId = Site.BuildingId;
+		SiteSnapshot.Location = Site.Location;
+		SiteSnapshot.YawDeg = Site.YawDeg;
+		SiteSnapshot.WorkRequestId = Site.WorkRequestId;
+		SiteSnapshot.State = Site.State;
+		OutSnapshot.Buildings.Sites.Add(SiteSnapshot);
+	}
 }
 
 void UWS_Building::ApplySnapshot_Implementation(const FEidosWorldSnapshot& Snapshot)
 {
-	// MVP 단계에서는 생략.
-	// 이후 ConstructionSites/Completed buildings를 복원하면서 Actor respawn 처리.
+	DestroyAllRuntimeActors();
+	ConstructionSites.Reset();
+	PendingFinalizeSiteIds.Reset();
+	PlannedFinalizeSiteIds.Reset();
+
+	NextSiteId = FMath::Max(1, Snapshot.Buildings.NextSiteId);
+	for (const FEidosConstructionSiteSnapshot& SiteSnapshot : Snapshot.Buildings.Sites)
+	{
+		FConstructionSiteState Site;
+		Site.SiteId = SiteSnapshot.SiteId;
+		Site.BuildingId = SiteSnapshot.BuildingId;
+		Site.Location = SiteSnapshot.Location;
+		Site.YawDeg = SiteSnapshot.YawDeg;
+		Site.WorkRequestId = SiteSnapshot.WorkRequestId;
+		Site.State = SiteSnapshot.State;
+		ConstructionSites.Add(Site);
+		NextSiteId = FMath::Max(NextSiteId, Site.SiteId + 1);
+	}
+
+	for (FConstructionSiteState& Site : ConstructionSites)
+	{
+		RespawnActorsForSite(Site, false);
+		if (Site.State == EConstructionSiteLifecycle::AwaitingFinalization)
+		{
+			PendingFinalizeSiteIds.AddUnique(Site.SiteId);
+		}
+	}
 }
 
 void UWS_Building::RegisterAutoWorksForBuilding(FName BuildingId, const FVector& BuildingLocation)
@@ -409,14 +511,11 @@ void UWS_Building::RegisterAutoWorksForBuilding(FName BuildingId, const FVector&
 			continue;
 		}
 
-		FWorkRequest Req;
-		Req.WorkId = Auto.WorkId;
-		Req.Priority = Auto.Priority;
-		Req.Mode = EWorkRequestMode::Count;
-		Req.RemainingCount = FMath::Max(1, Auto.InitialCount);
-
-		const int32 RequestId = WorkSubsystem->AddWorkRequest(Req);
-
-		UE_LOG(LogTemp, Log, TEXT("[Building] AutoWork registered Building=%s Work=%s RequestId=%d"), *BuildingId.ToString(), *Auto.WorkId.ToString(), RequestId);
+		FWorkRequest Request;
+		Request.WorkId = Auto.WorkId;
+		Request.Priority = Auto.Priority;
+		Request.Mode = EWorkRequestMode::Count;
+		Request.RemainingCount = FMath::Max(1, Auto.InitialCount);
+		WorkSubsystem->AddWorkRequest(Request);
 	}
 }

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "EidosAccessInterface.h"
+#include "Save/SaveGameParticipant.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "Simulation/SimSystem.h" 
 #include "WS_Population.generated.h"
@@ -15,7 +16,7 @@ class APageCharacter;
  * 
  */
 UCLASS()
-class AEIDOS_API UWS_Population : public UWorldSubsystem, public ISimSystem, public IEidosPopulationAccess
+class AEIDOS_API UWS_Population : public UWorldSubsystem, public ISimSystem, public IEidosPopulationAccess, public ISaveGameParticipant
 {
 	GENERATED_BODY()
 
@@ -41,6 +42,11 @@ public:
 	virtual bool IsPageAvailable_Implementation(int32 PageId) const override;
 	virtual float ComputeWorkRateMultiplier_Implementation(int32 PageId, FName WorkId) const override;
 	virtual void ApplyWorkCompletionEffects_Implementation(int32 PageId, FName WorkId) override;
+	virtual void AssignPageToWork_Implementation(int32 PageId, int32 InstanceId, FName WorkId, FVector WorkLocation, int32 Priority) override;
+	virtual void ClearPageWorkAssignment_Implementation(int32 PageId, int32 InstanceId) override;
+
+	virtual void WriteToSnapshot_Implementation(FEidosWorldSnapshot& InOutSnapshot) const override;
+	virtual void ApplySnapshot_Implementation(const FEidosWorldSnapshot& Snapshot) override;
 
 protected:
 	UPROPERTY(EditDefaultsOnly, Category="Population|Test")
@@ -55,11 +61,17 @@ protected:
 private:
 	
 	void RebuildCacheIfNeeded();
+	int32 EnsurePageEntityId(APageCharacter* Page);
+	APageCharacter* FindPageById(int32 PageId) const;
+	void ResetPageRuntimeState(APageCharacter* Page) const;
 
 	UPROPERTY()
 	TArray<TWeakObjectPtr<APageCharacter>> CachedPages;
 
+	TMap<int32, TWeakObjectPtr<APageCharacter>> CachedPagesById;
+
 	bool bCacheDirty = true;
+	int32 NextPageId = 1;
 
 	// 이번 틱에 적용할 델타(캐시와 같은 인덱스)
 	UPROPERTY()
