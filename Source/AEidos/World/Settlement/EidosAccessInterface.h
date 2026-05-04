@@ -63,5 +63,11 @@ public:
 
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent)
 	AActor* GetPageActor(int32 PageId);
+
+	UFUNCTION(BlueprintCallable, BlueprintNativeEvent)
+	void AssignPageToWork(int32 PageId, int32 InstanceId, FName WorkId, FVector WorkLocation, int32 Priority);
+
+	UFUNCTION(BlueprintCallable, BlueprintNativeEvent)
+	void ClearPageWorkAssignment(int32 PageId, int32 InstanceId);
 	
 };

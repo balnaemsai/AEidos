@@ -13,6 +13,29 @@
 
 class USimCommandBuffer;
 
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnWorkRequestStateChanged, int32, EWorkRequestLifecycleState);
+
+USTRUCT()
+struct FPlannedPageAssignment
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	int32 PageId = INDEX_NONE;
+
+	UPROPERTY()
+	int32 InstanceId = INDEX_NONE;
+
+	UPROPERTY()
+	FName WorkId;
+
+	UPROPERTY()
+	FVector WorkLocation = FVector::ZeroVector;
+
+	UPROPERTY()
+	int32 Priority = 0;
+};
+
 /**
  * 
  */
@@ -46,6 +69,8 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void LoadWorkDefs();
 
+	FOnWorkRequestStateChanged OnWorkRequestStateChanged;
+
 protected:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	
@@ -75,9 +100,8 @@ private:
 	UPROPERTY()
 	TArray<FWorkInstance> PlannedCompletedInstances;
 
-	// PageId -> Jobs
 	UPROPERTY()
-	TMap<int32, FJobArray> PageJobs;
+	TArray<FPlannedPageAssignment> PlannedPageAssignments;
 
 	// Cached subsystem pointers (interfaces)
 	UPROPERTY() UObject* EconomyObj = nullptr;
@@ -91,6 +115,7 @@ private:
 	void UpdateAssignments(float FixedDeltaSeconds);
 	void ProgressInstances(float FixedDeltaSeconds);
 	void HandleInstanceCompleted(const FWorkInstance& Inst);
+	void BroadcastRequestState(int32 RequestId, EWorkRequestLifecycleState NewState);
 
 	FVector ResolveSiteLocationForWork(const FWorkDefinitionRow& Def) const;
 	

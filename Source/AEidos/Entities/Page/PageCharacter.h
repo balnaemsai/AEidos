@@ -92,6 +92,12 @@ public:
 	UFUNCTION(BlueprintPure, Category="Skill")
 	int32 GetSkillLevel(FName SkillId) const;
 
+	UFUNCTION(BlueprintPure, Category="Page|Identity")
+	int32 GetPageEntityId() const { return PageEntityId; }
+
+	UFUNCTION(BlueprintCallable, Category="Page|Identity")
+	void SetPageEntityId(int32 NewPageEntityId);
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page")
 	FPageJobState CurrentJobState;
 
@@ -139,6 +145,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Runtime")
 	FVector PreviousWorldLocation = FVector::ZeroVector;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Identity")
+	int32 PageEntityId = 0;
 
 	// cm 당 Running 경험치
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page|Skills|Tuning")

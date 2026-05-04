@@ -1,16 +1,16 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Subsystems/WorldSubsystem.h"
-#include "Simulation/SimSystem.h"
 #include "Save/SaveGameParticipant.h"
+#include "Simulation/SimSystem.h"
+#include "Subsystems/WorldSubsystem.h"
 #include "Data/Definitions/BuildingDefinitionRow.h"
 #include "WS_Building.generated.h"
 
-class UGIS_DataRegistry;
-class UWS_Work;
 class AActor;
+class UGIS_DataRegistry;
 class USimCommandBuffer;
+class UWS_Work;
 
 USTRUCT(BlueprintType)
 struct FConstructionSiteState
@@ -29,20 +29,17 @@ struct FConstructionSiteState
 	UPROPERTY(BlueprintReadWrite)
 	float YawDeg = 0.f;
 
-	// WS_Work에 넣은 건설 요청
 	UPROPERTY(BlueprintReadWrite)
 	int32 WorkRequestId = 0;
 
-	// 공사장 Actor (런타임 캐시)
+	UPROPERTY(BlueprintReadWrite)
+	EConstructionSiteLifecycle State = EConstructionSiteLifecycle::Queued;
+
 	UPROPERTY()
 	TWeakObjectPtr<AActor> SiteActor;
 
-	// 최종 건물 Actor (런타임 캐시)
 	UPROPERTY()
 	TWeakObjectPtr<AActor> FinalActor;
-
-	UPROPERTY(BlueprintReadWrite)
-	bool bCompleted = false;
 };
 
 UCLASS()
@@ -55,14 +52,13 @@ class AEIDOS_API UWS_Building
 
 public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+	virtual void Deinitialize() override;
 
-	// ISimSystem
 	virtual void SimPlan_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds) override;
 	virtual void SimCommit_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds) override;
 	virtual void SimPost_Implementation(float FixedDeltaSeconds) override;
 	virtual int32 GetSimOrder_Implementation() const override { return 30; }
 
-	// Save
 	virtual void WriteToSnapshot_Implementation(FEidosWorldSnapshot& OutSnapshot) const override;
 	virtual void ApplySnapshot_Implementation(const FEidosWorldSnapshot& Snapshot) override;
 
@@ -82,11 +78,17 @@ public:
 
 private:
 	const FBuildingDefinitionRow* FindBuildingDef(FName BuildingId) const;
-
+	FConstructionSiteState* FindConstructionSiteById(int32 SiteId);
+	FConstructionSiteState* FindConstructionSiteByRequestId(int32 WorkRequestId);
 	bool IntersectsAnyPlacedOrConstruction(const FBuildingDefinitionRow& Def, FVector Location) const;
 	int32 CreateConstructionSite(FName BuildingId, FVector Location, float YawDeg, int32 WorkRequestId);
 	void FinalizeBuilding(int32 SiteId);
 	void CleanupInvalidActors();
+	void DestroyAllRuntimeActors();
+	void RespawnActorsForSite(FConstructionSiteState& Site, bool bRegisterAutoWorks);
+	void SpawnConstructionSiteActor(FConstructionSiteState& Site);
+	void SpawnFinalBuildingActor(FConstructionSiteState& Site, bool bRegisterAutoWorks);
+	void HandleWorkRequestStateChanged(int32 WorkRequestId, EWorkRequestLifecycleState NewState);
 
 	UPROPERTY()
 	TMap<FName, FBuildingDefinitionRow> BuildingDefs;
@@ -95,7 +97,10 @@ private:
 	TArray<FConstructionSiteState> ConstructionSites;
 
 	UPROPERTY()
-	TArray<int32> PlannedCompletedSiteIds;
+	TArray<int32> PendingFinalizeSiteIds;
+
+	UPROPERTY()
+	TArray<int32> PlannedFinalizeSiteIds;
 
 	UPROPERTY()
 	TObjectPtr<UWS_Work> WorkSubsystem = nullptr;

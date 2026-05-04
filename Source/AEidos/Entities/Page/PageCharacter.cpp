@@ -201,3 +201,8 @@ int32 APageCharacter::GetSkillLevel(FName SkillId) const
 
 	return Skills->GetSkillLevel(SkillId);
 }
+
+void APageCharacter::SetPageEntityId(int32 NewPageEntityId)
+{
+	PageEntityId = FMath::Max(0, NewPageEntityId);
+}
