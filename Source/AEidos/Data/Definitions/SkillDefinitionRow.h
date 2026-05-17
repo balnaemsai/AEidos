@@ -37,4 +37,22 @@ struct FSkillDefinitionRow : public FTableRowBase
 	// 예: Running +10 XP -> Endurance +1 XP (계수 0.1)
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TMap<FName, float> RelatedSkillCoefficients;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat")
+	bool bIsActiveCombatSkill = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat", meta=(ClampMin="0"))
+	int32 CombatActionPointCost = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat", meta=(ClampMin="0.0"))
+	float CombatRangeCm = 150.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat")
+	bool bRequiresTarget = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat")
+	bool bTargetHostileOnly = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat")
+	float CombatDamageAmount = 20.f;
 };

@@ -1,0 +1,6 @@
+Name,PortalId,PortalActorClass,SpawnIntervalSeconds,RaidDelaySeconds,Tier,DungeonMapId,SpawnMinDistance,SpawnMaxDistance
+DefaultPortal,DefaultPortal,"/Game/Blueprints/BP_PortalActor.BP_PortalActor_C",180,300,1,DungeonRuntimeBase,1200,2800
+Portal_Forest_01,Portal_Forest_01,"/Game/Blueprints/BP_PortalActor.BP_PortalActor_C",210,360,1,DungeonRuntimeBase,1400,3000
+Portal_Ash_01,Portal_Ash_01,"/Game/Blueprints/BP_PortalActor.BP_PortalActor_C",240,360,1,DungeonRuntimeBase,1400,3200
+Portal_Ruin_02,Portal_Ruin_02,"/Game/Blueprints/BP_PortalActor.BP_PortalActor_C",300,420,2,DungeonRuntimeBase,1600,3400
+Portal_Abyss_03,Portal_Abyss_03,"/Game/Blueprints/BP_PortalActor.BP_PortalActor_C",360,480,3,DungeonRuntimeBase,1800,3600

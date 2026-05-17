@@ -13,6 +13,8 @@ void UStatsComponent::ClampAll()
 {
 	Hunger  = FMath::Clamp(Hunger,  0.f, 100.f);
 	Fatigue = FMath::Clamp(Fatigue, 0.f, 100.f);
+	MaxHealth = FMath::Max(1.f, MaxHealth);
+	Health = FMath::Clamp(Health, 0.f, MaxHealth);
 }
 
 void UStatsComponent::ApplyDelta(const FPageStatsDelta& Delta)
@@ -20,6 +22,25 @@ void UStatsComponent::ApplyDelta(const FPageStatsDelta& Delta)
 	Hunger  += Delta.HungerDelta;
 	Fatigue += Delta.FatigueDelta;
 
+	ClampAll();
+	OnStatsChanged.Broadcast();
+}
+
+void UStatsComponent::ApplyDamage(float DamageAmount)
+{
+	if (DamageAmount <= 0.f)
+	{
+		return;
+	}
+
+	Health -= DamageAmount;
+	ClampAll();
+	OnStatsChanged.Broadcast();
+}
+
+void UStatsComponent::RestoreToFull()
+{
+	Health = MaxHealth;
 	ClampAll();
 	OnStatsChanged.Broadcast();
 }

@@ -4,6 +4,7 @@
 UENUM(BlueprintType)
 enum class EInGamePanel : uint8
 {
+	None     UMETA(DisplayName="None"),
 	Recruit  UMETA(DisplayName="Recruit"),
 	Craft    UMETA(DisplayName="Craft"),
 	Research UMETA(DisplayName="Research"),

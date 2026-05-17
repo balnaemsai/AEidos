@@ -22,6 +22,37 @@ enum class EPageViewMode : uint8
 	FirstPerson
 };
 
+UENUM(BlueprintType)
+enum class EPageFaction : uint8
+{
+	Friendly,
+	Hostile
+};
+
+UENUM(BlueprintType)
+enum class EPageCombatActionType : uint8
+{
+	None,
+	ActiveSkill,
+	ItemUse,
+	EndTurn
+};
+
+USTRUCT(BlueprintType)
+struct FPageCombatActionSlot
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Combat")
+	EPageCombatActionType ActionType = EPageCombatActionType::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Combat")
+	FName ActionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Combat")
+	FText DisplayName;
+};
+
 USTRUCT(BlueprintType)
 struct FPageJobState
 {
@@ -98,11 +129,51 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Page|Identity")
 	void SetPageEntityId(int32 NewPageEntityId);
 
+	UFUNCTION(BlueprintPure, Category="Page|Faction")
+	EPageFaction GetFaction() const { return Faction; }
+
+	UFUNCTION(BlueprintCallable, Category="Page|Faction")
+	void SetFaction(EPageFaction NewFaction);
+
+	UFUNCTION(BlueprintPure, Category="Page|Faction")
+	bool IsFriendly() const { return Faction == EPageFaction::Friendly; }
+
+	UFUNCTION(BlueprintPure, Category="Page|Faction")
+	bool IsHostile() const { return Faction == EPageFaction::Hostile; }
+
+	UFUNCTION(BlueprintPure, Category="Page|Faction")
+	bool IsHostileTo(const APageCharacter* OtherPage) const;
+
+	UFUNCTION(BlueprintPure, Category="Page|Dungeon")
+	bool IsInDungeon() const { return bIsInDungeon; }
+
+	UFUNCTION(BlueprintCallable, Category="Page|Dungeon")
+	void SetIsInDungeon(bool bNewIsInDungeon);
+
+	UFUNCTION(BlueprintPure, Category="Page|Combat")
+	bool IsInTurnCombat() const { return bInTurnCombat; }
+
+	UFUNCTION(BlueprintPure, Category="Page|Combat")
+	bool HasActiveCombatTurn() const { return bHasActiveCombatTurn; }
+
+	UFUNCTION(BlueprintCallable, Category="Page|Combat")
+	void SetTurnCombatState(bool bNewInTurnCombat, bool bNewHasActiveCombatTurn);
+
+	UFUNCTION(BlueprintPure, Category="Page|Combat")
+	const TArray<FPageCombatActionSlot>& GetCombatActionSlots() const { return CombatActionSlots; }
+
+	UFUNCTION(BlueprintPure, Category="Page|Combat")
+	bool GetCombatActionSlot(int32 SlotIndex, FPageCombatActionSlot& OutSlot) const;
+
+	UFUNCTION(BlueprintCallable, Category="Page|Combat")
+	void SetCombatActionSlot(int32 SlotIndex, const FPageCombatActionSlot& InSlot);
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page")
 	FPageJobState CurrentJobState;
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	
 	void HandleMove(const FInputActionValue& Value);
@@ -148,6 +219,21 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Identity")
 	int32 PageEntityId = 0;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Dungeon")
+	bool bIsInDungeon = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Combat")
+	bool bInTurnCombat = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Combat")
+	bool bHasActiveCombatTurn = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Page|Faction")
+	EPageFaction Faction = EPageFaction::Friendly;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page|Combat")
+	TArray<FPageCombatActionSlot> CombatActionSlots;
 
 	// cm 당 Running 경험치
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page|Skills|Tuning")

@@ -7,10 +7,16 @@
 #include "FrameWork/EidosPlayerController.h"
 #include "UI/HUD/HUDRootWidget.h"
 
+namespace
+{
+	const FName TerritoryExpansionBuildId(TEXT("TerritoryExpansion"));
+}
+
 void UPanelHostWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 
+	RefreshHostVisibility();
 	BindActiveBuildPanel();
 }
 
@@ -22,7 +28,14 @@ void UPanelHostWidget::HandleBuildStartRequested(FName BuildingId)
 	{
 		if (AEidosPlayerController* EidosPC = Cast<AEidosPlayerController>(PC))
 		{
-			EidosPC->BeginBuildPlacement(BuildingId);
+			if (BuildingId == TerritoryExpansionBuildId)
+			{
+				EidosPC->BeginTerritoryExpansionPlacement();
+			}
+			else
+			{
+				EidosPC->BeginBuildPlacement(BuildingId);
+			}
 		}
 	}
 }
@@ -31,6 +44,7 @@ int32 UPanelHostWidget::PanelToIndex(EInGamePanel Panel) const
 {
 	switch (Panel)
 	{
+	case EInGamePanel::None:      return INDEX_NONE;
 	case EInGamePanel::Recruit:   return 0;
 	case EInGamePanel::Craft:     return 1;
 	case EInGamePanel::Research:  return 2;
@@ -67,24 +81,39 @@ void UPanelHostWidget::CallHidden(UWidget* Widget)
 
 void UPanelHostWidget::SetPanel(EInGamePanel NewPanel)
 {
-	if (!Switcher_Center || NewPanel == CurrentPanel)
+	if (!Switcher_Center)
 	{
 		return;
 	}
-	
-	CallHidden(Switcher_Center->GetActiveWidget());
-	
+
+	if (NewPanel == CurrentPanel)
+	{
+		RefreshHostVisibility();
+		return;
+	}
+
+	if (CurrentPanel != EInGamePanel::None)
+	{
+		CallHidden(Switcher_Center->GetActiveWidget());
+	}
+
 	CurrentPanel = NewPanel;
-	Switcher_Center->SetActiveWidgetIndex(PanelToIndex(NewPanel));
-	
-	CallShown(Switcher_Center->GetActiveWidget());
+
+	const int32 PanelIndex = PanelToIndex(NewPanel);
+	if (PanelIndex != INDEX_NONE)
+	{
+		Switcher_Center->SetActiveWidgetIndex(PanelIndex);
+		CallShown(Switcher_Center->GetActiveWidget());
+	}
+
+	RefreshHostVisibility();
 
 	BindActiveBuildPanel();
 }
 
 void UPanelHostWidget::BindActiveBuildPanel()
 {
-	if (!Switcher_Center)
+	if (!Switcher_Center || CurrentPanel == EInGamePanel::None)
 	{
 		return;
 	}
@@ -112,4 +141,9 @@ void UPanelHostWidget::BindActiveBuildPanel()
 
 	CachedBuildPanel = Build;
 	UE_LOG(LogTemp, Warning, TEXT("[PanelHost] BuildPanel Created"));
+}
+
+void UPanelHostWidget::RefreshHostVisibility()
+{
+	SetVisibility(CurrentPanel == EInGamePanel::None ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
 }

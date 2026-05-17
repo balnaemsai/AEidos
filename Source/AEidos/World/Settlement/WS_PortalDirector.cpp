@@ -3,21 +3,37 @@
 
 #include "World/Settlement/WS_PortalDirector.h"
 
-#include "Data/GIS_DataRegistry.h"
+#include "Core/Types/PortalTypes.h"
 #include "Data/Definitions/PortalDefinitionRow.h"
-#include "World/Settlement/Portal/PortalActor.h"
+#include "Data/GIS_DataRegistry.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
-#include "GameFramework/PlayerController.h"
-#include "GameFramework/Pawn.h"
+#include "Entities/Page/PageCharacter.h"
 #include "Save/SaveGameSchema.h"
-#include "Core/Types/PortalTypes.h"
+#include "World/Dungeon/WS_DungeonRuntime.h"
+#include "World/Settlement/Portal/PortalActor.h"
+#include "World/Settlement/WS_SettlementSpace.h"
 
 namespace PortalDirectorKV
 {
 	static const TCHAR* NextPortalId = TEXT("PortalDirector.NextPortalId");
 	static const TCHAR* TimeSinceLastSpawn = TEXT("PortalDirector.TimeSinceLastSpawn");
 	static const TCHAR* ActivePortals = TEXT("PortalDirector.ActivePortals");
+}
+
+namespace
+{
+	bool IsTerminalPortalStatus(EPortalStatus Status)
+	{
+		return Status == EPortalStatus::Cleared
+			|| Status == EPortalStatus::RaidTriggered
+			|| Status == EPortalStatus::Expired;
+	}
+
+	bool ShouldAdvanceRaidTimer(const FPortalState& Portal)
+	{
+		return Portal.Status == EPortalStatus::Available;
+	}
 }
 
 FName UWS_PortalDirector::Key_NextPortalId()
@@ -73,7 +89,6 @@ const FPortalDefinitionRow* UWS_PortalDirector::GetDefaultPortalDef() const
 		return nullptr;
 	}
 
-	// DT_Portal의 기본 row 이름을 "DefaultPortal"로 사용
 	return Registry->GetPortalDef(TEXT("DefaultPortal"));
 }
 
@@ -100,8 +115,15 @@ void UWS_PortalDirector::SimCommit_Implementation(USimCommandBuffer* CommandBuff
 			*State.Location.ToString());
 	}
 
+	FinalizeSpawnedPortals();
+
 	for (int32 PortalId : PlannedRemovePortals)
 	{
+		if (FPortalState* Portal = ActivePortals.Find(PortalId))
+		{
+			SetPortalStatus(*Portal, EPortalStatus::Expired);
+		}
+
 		RemovePortalInternal(PortalId);
 		bDirty = true;
 	}
@@ -141,38 +163,59 @@ void UWS_PortalDirector::UpdatePortalTimer(float FixedDeltaSeconds)
 	for (TPair<int32, FPortalState>& Pair : ActivePortals)
 	{
 		FPortalState& Portal = Pair.Value;
+		NormalizePortalState(Portal);
 
-		if (Portal.bCleared)
+		if (IsTerminalPortalStatus(Portal.Status))
 		{
 			continue;
 		}
 
-		Portal.RaidTimer -= FixedDeltaSeconds;
-
-		if (Portal.RaidTimer <= 0.f)
+		Portal.SpawnTime += FixedDeltaSeconds;
+		if (!ShouldAdvanceRaidTimer(Portal))
 		{
-			UE_LOG(LogTemp, Warning,
-				TEXT("[Portal] RaidTriggered PortalId=%d Tier=%d"),
-				Portal.PortalId,
-				Portal.Tier);
+			continue;
+		}
 
-			// TODO:
-			// 나중에 WS_RaidDirector 연결
-			// GetWorld()->GetSubsystem<UWS_RaidDirector>()->StartRaid(...);
+		Portal.RaidTimer = FMath::Max(0.f, Portal.RaidTimer - FixedDeltaSeconds);
+		if (Portal.RaidTimer > 0.f)
+		{
+			continue;
+		}
 
-			PlannedRemovePortals.AddUnique(Portal.PortalId);
+		SetPortalStatus(Portal, EPortalStatus::RaidTriggered);
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Portal] RaidTriggered PortalId=%d Tier=%d"),
+			Portal.PortalId,
+			Portal.Tier);
+
+		// TODO:
+		// GetWorld()->GetSubsystem<UWS_RaidDirector>()->StartRaid(...);
+		PlannedRemovePortals.AddUnique(Portal.PortalId);
+	}
+}
+
+void UWS_PortalDirector::FinalizeSpawnedPortals()
+{
+	for (const FPortalState& PlannedState : PlannedSpawnPortals)
+	{
+		if (FPortalState* Portal = ActivePortals.Find(PlannedState.PortalId))
+		{
+			SetPortalStatus(*Portal, EPortalStatus::Available);
 		}
 	}
 }
 
-FPortalState UWS_PortalDirector::MakePortalState(const FPortalDefinitionRow& Def) const
+FPortalState UWS_PortalDirector::MakePortalState(const FPortalDefinitionRow& Def)
 {
 	FPortalState State;
-	State.PortalId = NextPortalId;
+	State.PortalId = NextPortalId++;
 	State.Location = ChoosePortalSpawnLocation(Def);
 	State.Tier = Def.Tier;
 	State.SpawnTime = 0.f;
 	State.RaidTimer = Def.RaidDelaySeconds;
+	State.DungeonSeed = FMath::Rand();
+	State.Status = EPortalStatus::Spawning;
+	State.bDungeonEntered = false;
 	State.bCleared = false;
 	return State;
 }
@@ -181,11 +224,18 @@ FVector UWS_PortalDirector::ChoosePortalSpawnLocation(const FPortalDefinitionRow
 {
 	FVector Origin = FVector::ZeroVector;
 
-	if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
+	if (UWS_SettlementSpace* SettlementSpace = GetWorld() ? GetWorld()->GetSubsystem<UWS_SettlementSpace>() : nullptr)
 	{
-		if (APawn* Pawn = PC->GetPawn())
+		const TArray<FIntPoint> OwnedChunks = SettlementSpace->GetOwnedChunks();
+		if (OwnedChunks.Num() > 0)
 		{
-			Origin = Pawn->GetActorLocation();
+			FVector Accumulated = FVector::ZeroVector;
+			for (const FIntPoint& Coord : OwnedChunks)
+			{
+				Accumulated += SettlementSpace->GetChunkWorldLocation(Coord);
+			}
+
+			Origin = Accumulated / static_cast<float>(OwnedChunks.Num());
 		}
 	}
 
@@ -198,6 +248,46 @@ FVector UWS_PortalDirector::ChoosePortalSpawnLocation(const FPortalDefinitionRow
 		0.f);
 
 	return Origin + Offset;
+}
+
+bool UWS_PortalDirector::SetPortalStatus(FPortalState& Portal, EPortalStatus NewStatus)
+{
+	if (Portal.Status == NewStatus)
+	{
+		NormalizePortalState(Portal);
+		return false;
+	}
+
+	Portal.Status = NewStatus;
+	NormalizePortalState(Portal);
+	bDirty = true;
+	return true;
+}
+
+void UWS_PortalDirector::NormalizePortalState(FPortalState& Portal) const
+{
+	switch (Portal.Status)
+	{
+	case EPortalStatus::Entered:
+		Portal.bDungeonEntered = true;
+		Portal.bCleared = false;
+		break;
+	case EPortalStatus::Cleared:
+		Portal.bDungeonEntered = true;
+		Portal.bCleared = true;
+		break;
+	case EPortalStatus::RaidTriggered:
+	case EPortalStatus::Expired:
+		Portal.bDungeonEntered = false;
+		Portal.bCleared = false;
+		break;
+	case EPortalStatus::Spawning:
+	case EPortalStatus::Available:
+	default:
+		Portal.bDungeonEntered = false;
+		Portal.bCleared = false;
+		break;
+	}
 }
 
 void UWS_PortalDirector::SpawnPortalActorForState(const FPortalState& State)
@@ -284,18 +374,26 @@ bool UWS_PortalDirector::ValidateEntry(int32 PortalId) const
 	const FPortalState* State = ActivePortals.Find(PortalId);
 	if (!State)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Portal] ValidateEntry failed: PortalId=%d not found"), PortalId);
 		return false;
 	}
 
-	if (State->bCleared)
+	if (State->Status != EPortalStatus::Available)
 	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Portal] ValidateEntry denied: PortalId=%d Status=%d Entered=%d Cleared=%d RaidTimer=%.2f"),
+			PortalId,
+			static_cast<int32>(State->Status),
+			State->bDungeonEntered ? 1 : 0,
+			State->bCleared ? 1 : 0,
+			State->RaidTimer);
 		return false;
 	}
 
 	return true;
 }
 
-bool UWS_PortalDirector::RequestEnterPortal(int32 PortalId)
+bool UWS_PortalDirector::RequestEnterPortal(int32 PortalId, APageCharacter* EnteringPage)
 {
 	if (!ValidateEntry(PortalId))
 	{
@@ -303,10 +401,37 @@ bool UWS_PortalDirector::RequestEnterPortal(int32 PortalId)
 		return false;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[Portal] RequestEnterPortal PortalId=%d"), PortalId);
+	if (!EnteringPage)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Portal] RequestEnterPortal failed: entering page missing"));
+		return false;
+	}
+
+	UWS_DungeonRuntime* DungeonRuntime = GetWorld() ? GetWorld()->GetSubsystem<UWS_DungeonRuntime>() : nullptr;
+	if (!DungeonRuntime)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Portal] RequestEnterPortal failed: DungeonRuntime missing"));
+		return false;
+	}
+
+	if (!DungeonRuntime->EnterDungeonForPortal(PortalId, EnteringPage))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Portal] RequestEnterPortal failed: dungeon runtime rejected request"));
+		return false;
+	}
+
+	if (FPortalState* State = ActivePortals.Find(PortalId))
+	{
+		SetPortalStatus(*State, EPortalStatus::Entered);
+	}
+
+	UE_LOG(LogTemp, Log,
+		TEXT("[Portal] RequestEnterPortal PortalId=%d PageId=%d"),
+		PortalId,
+		EnteringPage->GetPageEntityId());
 
 	// TODO:
-	// 실제 Dungeon 진입 처리 연결
+	// Actual dungeon transition/session creation hooks in here later.
 	return true;
 }
 
@@ -318,8 +443,7 @@ void UWS_PortalDirector::OnDungeonCleared(int32 PortalId)
 		return;
 	}
 
-	State->bCleared = true;
-	bDirty = true;
+	SetPortalStatus(*State, EPortalStatus::Cleared);
 
 	UE_LOG(LogTemp, Log, TEXT("[Portal] DungeonCleared PortalId=%d"), PortalId);
 
@@ -337,7 +461,6 @@ void UWS_PortalDirector::SpawnPortalNow()
 
 	const FPortalState State = MakePortalState(*Def);
 	PlannedSpawnPortals.Add(State);
-	NextPortalId += 1;
 }
 
 bool UWS_PortalDirector::TryGetPortalState(int32 PortalId, FPortalState& OutState) const
@@ -366,8 +489,6 @@ TArray<FPortalState> UWS_PortalDirector::GetActivePortals() const
 
 FString UWS_PortalDirector::EncodePortalStates(const TMap<int32, FPortalState>& InStates)
 {
-	// 포맷:
-	// PortalId,X,Y,Z,Tier,SpawnTime,RaidTimer,bCleared;
 	TArray<FString> Items;
 	Items.Reserve(InStates.Num());
 
@@ -376,7 +497,7 @@ FString UWS_PortalDirector::EncodePortalStates(const TMap<int32, FPortalState>& 
 		const FPortalState& S = Pair.Value;
 
 		Items.Add(FString::Printf(
-			TEXT("%d,%.3f,%.3f,%.3f,%d,%.3f,%.3f,%d"),
+			TEXT("%d,%.3f,%.3f,%.3f,%d,%.3f,%.3f,%d,%d,%d,%d"),
 			S.PortalId,
 			S.Location.X,
 			S.Location.Y,
@@ -384,6 +505,9 @@ FString UWS_PortalDirector::EncodePortalStates(const TMap<int32, FPortalState>& 
 			S.Tier,
 			S.SpawnTime,
 			S.RaidTimer,
+			S.DungeonSeed,
+			static_cast<int32>(S.Status),
+			S.bDungeonEntered ? 1 : 0,
 			S.bCleared ? 1 : 0));
 	}
 
@@ -407,7 +531,7 @@ void UWS_PortalDirector::DecodePortalStates(const FString& Encoded, TArray<FPort
 		TArray<FString> Fields;
 		Entry.ParseIntoArray(Fields, TEXT(","), false);
 
-		if (Fields.Num() < 8)
+		if (Fields.Num() < 11)
 		{
 			continue;
 		}
@@ -420,7 +544,37 @@ void UWS_PortalDirector::DecodePortalStates(const FString& Encoded, TArray<FPort
 		S.Tier = FCString::Atoi(*Fields[4]);
 		S.SpawnTime = FCString::Atof(*Fields[5]);
 		S.RaidTimer = FCString::Atof(*Fields[6]);
-		S.bCleared = FCString::Atoi(*Fields[7]) != 0;
+		S.DungeonSeed = FCString::Atoi(*Fields[7]);
+		S.Status = static_cast<EPortalStatus>(FCString::Atoi(*Fields[8]));
+		S.bDungeonEntered = FCString::Atoi(*Fields[9]) != 0;
+		S.bCleared = FCString::Atoi(*Fields[10]) != 0;
+
+		switch (S.Status)
+		{
+		case EPortalStatus::Spawning:
+			S.Status = EPortalStatus::Available;
+			break;
+		case EPortalStatus::Available:
+		case EPortalStatus::Entered:
+		case EPortalStatus::Cleared:
+		case EPortalStatus::RaidTriggered:
+		case EPortalStatus::Expired:
+			break;
+		default:
+			if (S.bCleared)
+			{
+				S.Status = EPortalStatus::Cleared;
+			}
+			else if (S.bDungeonEntered)
+			{
+				S.Status = EPortalStatus::Entered;
+			}
+			else
+			{
+				S.Status = EPortalStatus::Available;
+			}
+			break;
+		}
 
 		OutStates.Add(S);
 	}
@@ -447,8 +601,19 @@ void UWS_PortalDirector::ApplySnapshot_Implementation(const FEidosWorldSnapshot&
 
 	for (const FPortalState& S : DecodedStates)
 	{
-		ActivePortals.Add(S.PortalId, S);
-		NextPortalId = FMath::Max(NextPortalId, S.PortalId + 1);
+		FPortalState NormalizedState = S;
+		NormalizePortalState(NormalizedState);
+
+		// Dungeon runtime sessions are not persisted yet.
+		// If a save is loaded after entering a portal, treat it as re-opened rather than permanently occupied.
+		if (NormalizedState.Status == EPortalStatus::Entered)
+		{
+			NormalizedState.Status = EPortalStatus::Available;
+			NormalizePortalState(NormalizedState);
+		}
+
+		ActivePortals.Add(NormalizedState.PortalId, NormalizedState);
+		NextPortalId = FMath::Max(NextPortalId, NormalizedState.PortalId + 1);
 	}
 
 	EnsurePortalActorsFromState();

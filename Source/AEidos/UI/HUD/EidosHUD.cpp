@@ -61,7 +61,14 @@ void AEidosHUD::EnsureHUDRoot()
 		return;
 	}
 
-	HUDRootWidgetInstance = CreateWidget<UUserWidget>(World, HUDRootWidgetClass);
+	if (APlayerController* OwningPC = GetOwningPlayerController())
+	{
+		HUDRootWidgetInstance = CreateWidget<UUserWidget>(OwningPC, HUDRootWidgetClass);
+	}
+	else
+	{
+		HUDRootWidgetInstance = CreateWidget<UUserWidget>(World, HUDRootWidgetClass);
+	}
 	if (HUDRootWidgetInstance)
 	{
 		HUDRootWidgetInstance->AddToViewport(0);

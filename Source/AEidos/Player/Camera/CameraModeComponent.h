@@ -40,6 +40,7 @@ public:
 
 	// 외부(컨트롤러/UI)에서 선택 페이지 바꾸기
 	void SetSelectedPage(APageCharacter* NewPage);
+	void FocusSelectedPage(bool bForceFollowMode = true);
 
 	// 단축키 핸들러
 	void ToggleViewMode();      // V

@@ -6,11 +6,17 @@
 UENUM(BlueprintType)
 enum class EPortalStatus : uint8
 {
+	// Spawn request has been committed, but gameplay interaction is not yet open.
 	Spawning,
-	Idle,
-	DungeonOpen,
+	// Actively present in the world and counting down toward a raid trigger.
+	Available,
+	// A party has committed to the portal, so it should no longer behave like an ignored threat.
+	Entered,
+	// Portal objective was resolved successfully.
 	Cleared,
+	// Ignore timer elapsed and downstream penalty/raid should fire.
 	RaidTriggered,
+	// Terminal cleanup state after completion or raid resolution.
 	Expired
 };
 
@@ -39,7 +45,7 @@ struct FPortalState
 	int32 DungeonSeed = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	EPortalStatus Status = EPortalStatus::Idle;
+	EPortalStatus Status = EPortalStatus::Spawning;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bDungeonEntered = false;

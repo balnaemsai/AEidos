@@ -14,18 +14,21 @@ void UHUDRootWidget::NativeConstruct()
 		WBP_PanelNavBarWidget->OnPanelSelected.AddDynamic(this, &UHUDRootWidget::HandlePanelSelected);
 	}
 	
-	HandlePanelSelected(EInGamePanel::Recruit);
+	HandlePanelSelected(EInGamePanel::None);
 }
 
 void UHUDRootWidget::HandlePanelSelected(EInGamePanel Panel)
 {
+	const EInGamePanel NextPanel = (ActivePanel == Panel) ? EInGamePanel::None : Panel;
+	ActivePanel = NextPanel;
+
 	if (WBP_PanelNavBarWidget)
 	{
-		WBP_PanelNavBarWidget->SetActivePanel(Panel);
+		WBP_PanelNavBarWidget->SetActivePanel(NextPanel);
 	}
 
 	if (WBP_PanelHostWidget)
 	{
-		WBP_PanelHostWidget->SetPanel(Panel);
+		WBP_PanelHostWidget->SetPanel(NextPanel);
 	}
 }

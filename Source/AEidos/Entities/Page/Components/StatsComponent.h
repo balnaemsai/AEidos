@@ -35,9 +35,24 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Stats")
 	float GetFatigue() const { return Fatigue; }
 
+	UFUNCTION(BlueprintCallable, Category="Stats")
+	float GetHealth() const { return Health; }
+
+	UFUNCTION(BlueprintCallable, Category="Stats")
+	float GetMaxHealth() const { return MaxHealth; }
+
+	UFUNCTION(BlueprintCallable, Category="Stats")
+	bool IsDead() const { return Health <= 0.f; }
+
 	// --- Mutations (Commit에서만 호출하는 걸 권장) ---
 	UFUNCTION(BlueprintCallable, Category="Stats")
 	void ApplyDelta(const FPageStatsDelta& Delta);
+
+	UFUNCTION(BlueprintCallable, Category="Stats")
+	void ApplyDamage(float DamageAmount);
+
+	UFUNCTION(BlueprintCallable, Category="Stats")
+	void RestoreToFull();
 
 	UPROPERTY(BlueprintAssignable)
 	FOnStatsChanged OnStatsChanged;
@@ -48,6 +63,12 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Stats", meta=(ClampMin="0.0", ClampMax="100.0"))
 	float Fatigue = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Stats", meta=(ClampMin="1.0"))
+	float MaxHealth = 100.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Stats", meta=(ClampMin="0.0"))
+	float Health = 100.f;
 
 	void ClampAll();
 };

@@ -1,0 +1,6 @@
+Name,WorkId,DisplayName,TotalWork,BaseWorkRate,MaxWorkers,SiteTag,Costs,Rewards,PrimarySkillId,XPPerSecond,XPFactor
+Construct_Hut,Construct_Hut,"Construct Hut",18,1,2,Build,"((ResourceId=""EP"",Amount=20),(ResourceId=""Wood"",Amount=25))","()",Construction,1.2,1.0
+Construct_Stockpile,Construct_Stockpile,"Construct Stockpile",12,1,2,Build,"((ResourceId=""EP"",Amount=15),(ResourceId=""Wood"",Amount=12))","()",Construction,1.0,1.0
+Construct_Workbench,Construct_Workbench,"Construct Workbench",22,1,2,Build,"((ResourceId=""EP"",Amount=30),(ResourceId=""Wood"",Amount=35),(ResourceId=""Stone"",Amount=20))","()",Construction,1.4,1.1
+Gather_Wood,Gather_Wood,"Gather Wood",8,1,1,Gather,"()","((ResourceId=""Wood"",Amount=12))",Gathering,0.8,1.0
+Gather_Stone,Gather_Stone,"Gather Stone",10,1,1,Gather,"()","((ResourceId=""Stone"",Amount=10))",Gathering,0.9,1.0

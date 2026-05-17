@@ -12,14 +12,7 @@
 #include "UI/GIS_UIRouter.h"
 #include "Simulation/WS_SimulationOrchestrator.h"
 #include "World/Settlement/WS_SettlementSpace.h"
-/*
-
-#include "World/Settlement/WS_Building.h"
-
-#include "World/Settlement/WS_Research.h"
 #include "World/Settlement/WS_PortalDirector.h"
-#include "World/Settlement/WS_RaidDirector.h"
-*/
 #include "Combat/WS_CombatDirector.h"
 #include "GameFramework/GameModeBase.h"
 #include "Framework/EidosGameMode.h"
@@ -201,6 +194,8 @@ void UWS_WorldBootstrap::ContinueBootstrapAfterDataRegistryReady(bool bOk)
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Economy>());
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Population>());
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Building>());
+	Orch->RegisterSimSystem(World->GetSubsystem<UWS_PortalDirector>());
+	Orch->RegisterSimSystem(World->GetSubsystem<UWS_CombatDirector>());
 	World->GetSubsystem<UWS_Population>()->EnsureTestPageSpawned(); //테스트용 page 하나 소환 보장
 	
 	Orch->StartMainLoop();

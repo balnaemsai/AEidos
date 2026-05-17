@@ -41,6 +41,8 @@ protected:
 	UFUNCTION()
 	void HandlePanelSelected(EInGamePanel Panel);
 
+	EInGamePanel ActivePanel = EInGamePanel::None;
+
 	UPROPERTY(meta = (BindWidget))
 	UOverlay* Layer_Context;
 

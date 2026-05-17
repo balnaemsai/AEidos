@@ -12,7 +12,9 @@
 class USimCommandBuffer;
 class UGIS_DataRegistry;
 class UWS_RaidDirector;
+class AActor;
 class APortalActor;
+class APageCharacter;
 struct FPortalDefinitionRow;
 struct FEidosWorldSnapshot;
 struct FPortalState;
@@ -44,7 +46,7 @@ public:
 	bool ValidateEntry(int32 PortalId) const;
 
 	UFUNCTION(BlueprintCallable)
-	bool RequestEnterPortal(int32 PortalId);
+	bool RequestEnterPortal(int32 PortalId, APageCharacter* EnteringPage);
 
 	UFUNCTION(BlueprintCallable)
 	void OnDungeonCleared(int32 PortalId);
@@ -89,9 +91,12 @@ private:
 
 	void CheckSpawn(float FixedDeltaSeconds);
 	void UpdatePortalTimer(float FixedDeltaSeconds);
+	void FinalizeSpawnedPortals();
 
-	FPortalState MakePortalState(const FPortalDefinitionRow& Def) const;
+	FPortalState MakePortalState(const FPortalDefinitionRow& Def);
 	FVector ChoosePortalSpawnLocation(const FPortalDefinitionRow& Def) const;
+	bool SetPortalStatus(FPortalState& Portal, EPortalStatus NewStatus);
+	void NormalizePortalState(FPortalState& Portal) const;
 
 	void SpawnPortalActorForState(const FPortalState& State);
 	void EnsurePortalActorsFromState();

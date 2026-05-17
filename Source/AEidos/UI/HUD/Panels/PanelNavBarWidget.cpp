@@ -69,6 +69,7 @@ void UPanelNavBarWidget::Apply(UButton* Btn, bool bActive)
 
 void UPanelNavBarWidget::Refresh(EInGamePanel Panel)
 {
+	ActivePanel = Panel;
 	Apply(BtnRecruit,   Panel == EInGamePanel::Recruit);
 	Apply(BtnCraft,     Panel == EInGamePanel::Craft);
 	Apply(BtnResearch,  Panel == EInGamePanel::Research);

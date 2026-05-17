@@ -4,10 +4,12 @@
 #include "World/Settlement/Portal/PortalActor.h"
 
 #include "Components/SceneComponent.h"
-#include "Components/StaticMeshComponent.h"
 #include "Components/SphereComponent.h"
-#include "GameFramework/PlayerController.h"
+#include "Components/StaticMeshComponent.h"
+#include "Entities/Page/PageCharacter.h"
+#include "Framework/EidosPlayerController.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
 #include "World/Settlement/WS_PortalDirector.h"
 
 APortalActor::APortalActor()
@@ -65,13 +67,25 @@ void APortalActor::Interact(APlayerController* InteractingPC)
 		return;
 	}
 
-	// 필요하면 거리 체크
+	APageCharacter* InteractingPage = nullptr;
 	if (InteractingPC)
 	{
-		APawn* Pawn = InteractingPC->GetPawn();
-		if (Pawn)
+		if (APawn* Pawn = InteractingPC->GetPawn())
 		{
-			const float DistSq = FVector::DistSquared(Pawn->GetActorLocation(), GetActorLocation());
+			InteractingPage = Cast<APageCharacter>(Pawn);
+		}
+
+		if (!InteractingPage)
+		{
+			if (const AEidosPlayerController* EidosPC = Cast<AEidosPlayerController>(InteractingPC))
+			{
+				InteractingPage = EidosPC->GetSelectedPage();
+			}
+		}
+
+		if (InteractingPage)
+		{
+			const float DistSq = FVector::DistSquared(InteractingPage->GetActorLocation(), GetActorLocation());
 			if (DistSq > FMath::Square(InteractionRadius))
 			{
 				UE_LOG(LogTemp, Warning,
@@ -90,7 +104,7 @@ void APortalActor::Interact(APlayerController* InteractingPC)
 		return;
 	}
 
-	const bool bSuccess = PortalDirector->RequestEnterPortal(PortalId);
+	const bool bSuccess = PortalDirector->RequestEnterPortal(PortalId, InteractingPage);
 
 	UE_LOG(LogTemp, Log,
 		TEXT("[PortalActor] Interact PortalId=%d Result=%s"),

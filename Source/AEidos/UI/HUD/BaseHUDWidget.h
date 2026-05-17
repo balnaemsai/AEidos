@@ -10,6 +10,10 @@ class UTopBarWidget;
 class UResourcePanelWidget;
 class UMinimapWidget;
 class UWS_Economy;
+class UPageRosterWidget;
+class UDungeonStatusWidget;
+class UNotificationFeedWidget;
+class UQuickBarWidget;
 
 /**
  * 
@@ -22,6 +26,7 @@ class AEIDOS_API UBaseHUDWidget : public UUserWidget
 public:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 protected:
 	UPROPERTY(meta = (BindWidget))
@@ -33,9 +38,23 @@ protected:
 	UPROPERTY(meta = (BindWidget))
 	UMinimapWidget* Minimap;
 
+	UPROPERTY(meta = (BindWidgetOptional))
+	UPageRosterWidget* PageRoster;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UDungeonStatusWidget* DungeonStatus;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UNotificationFeedWidget* NotificationFeed;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UQuickBarWidget* QuickBarPopup;
+
 private:
 	UPROPERTY()
 	UWS_Economy* Economy = nullptr;
+
+	float HUDRefreshAccumulator = 0.f;
 
 	UFUNCTION()
 	void HandleEconomyChanged();
@@ -43,4 +62,5 @@ private:
 	void BindEconomy();
 	void UnbindEconomy();
 	void RefreshResourcePanel();
+	void RefreshPageHUD();
 };

@@ -164,6 +164,21 @@ void UCameraModeComponent::SetSelectedPage(APageCharacter* NewPage)
 	}
 }
 
+void UCameraModeComponent::FocusSelectedPage(bool bForceFollowMode)
+{
+	if (!SelectedPage)
+	{
+		return;
+	}
+
+	if (bForceFollowMode && ControlMode != ECameraControlMode::FollowPage)
+	{
+		ControlMode = ECameraControlMode::FollowPage;
+	}
+
+	EnterFollowPage();
+}
+
 void UCameraModeComponent::ToggleViewMode()
 {
 	if (ControlMode != ECameraControlMode::FollowPage)

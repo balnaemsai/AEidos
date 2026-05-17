@@ -18,6 +18,12 @@
 #include "Blueprint/WidgetTree.h"
 #include "Engine/DataTable.h"
 #include "Engine/Texture2D.h"
+#include "World/Settlement/WS_SettlementSpace.h"
+
+namespace
+{
+	const FName TerritoryExpansionBuildId(TEXT("TerritoryExpansion"));
+}
 
 void UPanel_Build::NativeConstruct()
 {
@@ -132,6 +138,41 @@ void UPanel_Build::RefreshBuildList()
 		}
 	}
 
+	{
+		FBuildPanelItem TerritoryItem;
+		TerritoryItem.BuildingId = TerritoryExpansionBuildId;
+		TerritoryItem.DisplayName = FText::FromString(TEXT("Territory Expansion"));
+		TerritoryItem.Description = FText::FromString(TEXT("Claim an adjacent chunk immediately after placement confirmation. This skips worker construction, but still spends the territory cost."));
+		TerritoryItem.Category = EBuildingCategory::Structure;
+		TerritoryItem.BuildWorkId = NAME_None;
+		TerritoryItem.TotalWork = 0.f;
+		if (UWS_SettlementSpace* SettlementSpace = World->GetSubsystem<UWS_SettlementSpace>())
+		{
+			if (!SettlementSpace->GetExpansionCostResourceId().IsNone() && SettlementSpace->GetExpansionCostAmount() > 0)
+			{
+				FWorkCost Cost;
+				Cost.ResourceId = SettlementSpace->GetExpansionCostResourceId();
+				Cost.Amount = SettlementSpace->GetExpansionCostAmount();
+				TerritoryItem.Costs.Add(Cost);
+			}
+		}
+		CachedItems.Add(TerritoryItem);
+
+		if (BuildEntryClass)
+		{
+			UBuildEntry* Entry = CreateWidget<UBuildEntry>(this, BuildEntryClass);
+			if (Entry)
+			{
+				Entry->Setup(TerritoryItem);
+				Entry->OnEntryClicked.AddDynamic(this, &UPanel_Build::SelectBuilding);
+				if (UWrapBoxSlot* WrapSlot = Cast<UWrapBoxSlot>(WrapBox_BuildEntries->AddChild(Entry)))
+				{
+					WrapSlot->SetPadding(FMargin(8.f));
+				}
+			}
+		}
+	}
+
 	if (CachedItems.Num() > 0)
 	{
 		SelectBuilding(CachedItems[0].BuildingId);
@@ -213,11 +254,11 @@ void UPanel_Build::RebuildDetail()
 	}
 	if (Text_TotalWorkValue)
 	{
-		Text_TotalWorkValue->SetText(FText::AsNumber(Item->TotalWork));
+		Text_TotalWorkValue->SetText(Item->BuildingId == TerritoryExpansionBuildId ? FText::FromString(TEXT("Instant")) : FText::AsNumber(Item->TotalWork));
 	}
 	if (Text_WorkIdValue)
 	{
-		Text_WorkIdValue->SetText(FText::FromName(Item->BuildWorkId));
+		Text_WorkIdValue->SetText(Item->BuildingId == TerritoryExpansionBuildId ? FText::FromString(TEXT("Immediate")) : FText::FromName(Item->BuildWorkId));
 	}
 	if (Text_CategoryValue)
 	{
@@ -237,6 +278,13 @@ void UPanel_Build::RebuildDetail()
 	{
 		UTextBlock* Txt = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
 		Txt->SetText(FText::FromString(FString::Printf(TEXT("%s x%d"), *Cost.ResourceId.ToString(), Cost.Amount)));
+		WrapBox_CostList->AddChildToWrapBox(Txt);
+	}
+
+	if (Item->BuildingId == TerritoryExpansionBuildId && WrapBox_CostList->GetChildrenCount() == 0)
+	{
+		UTextBlock* Txt = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+		Txt->SetText(FText::FromString(TEXT("No resource cost configured")));
 		WrapBox_CostList->AddChildToWrapBox(Txt);
 	}
 

@@ -4,8 +4,9 @@
 #include "World/Settlement/WS_SettlementSpace.h"
 
 #include "Engine/World.h"
-#include "World/Settlement/TerritoryChunkActor.h"
 #include "Save/SaveGameSchema.h"
+#include "World/Settlement/TerritoryChunkActor.h"
+#include "World/Settlement/WS_Economy.h"
 
 const FName UWS_SettlementSpace::KEY_OwnedChunks(TEXT("SettlementSpace.OwnedChunks"));
 
@@ -69,6 +70,103 @@ void UWS_SettlementSpace::ApplySnapshot_Implementation(const FEidosWorldSnapshot
 	}
 
 	RebuildChunkActorsFromOwned();
+	OnTerritoryChanged.Broadcast();
+}
+
+TArray<FIntPoint> UWS_SettlementSpace::GetOwnedChunks() const
+{
+	TArray<FIntPoint> Result = OwnedChunks.Array();
+	Result.Sort([](const FIntPoint& A, const FIntPoint& B)
+	{
+		return (A.X == B.X) ? (A.Y < B.Y) : (A.X < B.X);
+	});
+	return Result;
+}
+
+TArray<FIntPoint> UWS_SettlementSpace::GetExpandableChunks() const
+{
+	static const FIntPoint Offsets[] =
+	{
+		FIntPoint(1, 0),
+		FIntPoint(-1, 0),
+		FIntPoint(0, 1),
+		FIntPoint(0, -1)
+	};
+
+	TSet<FIntPoint> CandidateSet;
+	for (const FIntPoint& Owned : OwnedChunks)
+	{
+		for (const FIntPoint& Offset : Offsets)
+		{
+			const FIntPoint Candidate = Owned + Offset;
+			FString Reason;
+			if (IsValidExpansionTarget(Candidate, Reason))
+			{
+				CandidateSet.Add(Candidate);
+			}
+		}
+	}
+
+	TArray<FIntPoint> Result = CandidateSet.Array();
+	Result.Sort([](const FIntPoint& A, const FIntPoint& B)
+	{
+		return (A.X == B.X) ? (A.Y < B.Y) : (A.X < B.X);
+	});
+	return Result;
+}
+
+FIntPoint UWS_SettlementSpace::WorldLocationToCoord(const FVector& WorldLocation) const
+{
+	if (ChunkSizeCm <= KINDA_SMALL_NUMBER)
+	{
+		return FIntPoint::ZeroValue;
+	}
+
+	return FIntPoint(
+		FMath::RoundToInt(WorldLocation.X / ChunkSizeCm),
+		FMath::RoundToInt(WorldLocation.Y / ChunkSizeCm));
+}
+
+FVector UWS_SettlementSpace::GetChunkWorldLocation(const FIntPoint& Coord) const
+{
+	return CoordToWorldLocation(Coord);
+}
+
+bool UWS_SettlementSpace::HasOwnedAdjacentChunk(const FIntPoint& Coord) const
+{
+	static const FIntPoint Offsets[] =
+	{
+		FIntPoint(1, 0),
+		FIntPoint(-1, 0),
+		FIntPoint(0, 1),
+		FIntPoint(0, -1)
+	};
+
+	for (const FIntPoint& Offset : Offsets)
+	{
+		if (OwnedChunks.Contains(Coord + Offset))
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool UWS_SettlementSpace::CanPurchaseChunk(const FIntPoint& Coord, FString& OutReason) const
+{
+	return IsValidExpansionTarget(Coord, OutReason);
+}
+
+bool UWS_SettlementSpace::PurchaseChunk(const FIntPoint& Coord, FString& OutReason)
+{
+	return AcquireChunkInternal(Coord, OutReason, true);
+}
+
+bool UWS_SettlementSpace::PurchaseChunkAtWorldLocation(const FVector& WorldLocation, FIntPoint& OutCoord, FString& OutReason)
+{
+	OutCoord = WorldLocationToCoord(WorldLocation);
+	return PurchaseChunk(OutCoord, OutReason);
 }
 
 FString UWS_SettlementSpace::EncodeOwnedChunks(const TSet<FIntPoint>& Chunks)
@@ -178,4 +276,75 @@ ATerritoryChunkActor* UWS_SettlementSpace::SpawnChunkActor(const FIntPoint& Coor
 	}
 
 	return Chunk;
+}
+
+bool UWS_SettlementSpace::IsValidExpansionTarget(const FIntPoint& Coord, FString& OutReason) const
+{
+	if (OwnedChunks.Contains(Coord))
+	{
+		OutReason = TEXT("Chunk is already owned.");
+		return false;
+	}
+
+	if (OwnedChunks.Num() > 0 && !HasOwnedAdjacentChunk(Coord))
+	{
+		OutReason = TEXT("Chunk must be adjacent to owned territory.");
+		return false;
+	}
+
+	OutReason.Reset();
+	return true;
+}
+
+bool UWS_SettlementSpace::AcquireChunkInternal(const FIntPoint& Coord, FString& OutReason, bool bConsumeCost)
+{
+	if (!IsValidExpansionTarget(Coord, OutReason))
+	{
+		return false;
+	}
+
+	if (bConsumeCost)
+	{
+		UWS_Economy* Economy = GetWorld() ? GetWorld()->GetSubsystem<UWS_Economy>() : nullptr;
+		if (!Economy)
+		{
+			OutReason = TEXT("Economy subsystem is missing.");
+			return false;
+		}
+
+		if (ExpansionCostAmount > 0)
+		{
+			if (ExpansionCostResourceId.IsNone())
+			{
+				OutReason = TEXT("Expansion cost resource is not configured.");
+				return false;
+			}
+
+			const int32 CurrentAmount = Economy->GetAmount(ExpansionCostResourceId);
+			if (CurrentAmount < ExpansionCostAmount)
+			{
+				OutReason = FString::Printf(
+					TEXT("Need %s x%d (Have %d)"),
+					*ExpansionCostResourceId.ToString(),
+					ExpansionCostAmount,
+					CurrentAmount);
+				return false;
+			}
+
+			Economy->AddAmount(ExpansionCostResourceId, -ExpansionCostAmount);
+		}
+	}
+
+	OwnedChunks.Add(Coord);
+	SpawnChunkActor(Coord);
+	OnTerritoryChanged.Broadcast();
+
+	UE_LOG(LogTemp, Log,
+		TEXT("[SettlementSpace] %s chunk (%d,%d)"),
+		bConsumeCost ? TEXT("Purchased") : TEXT("Acquired"),
+		Coord.X,
+		Coord.Y);
+
+	OutReason.Reset();
+	return true;
 }

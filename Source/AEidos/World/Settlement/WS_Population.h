@@ -58,6 +58,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Population|Test")
 	FVector TestSpawnLocation = FVector(0.f, 0.f, 200.f);
 
+	UPROPERTY(EditDefaultsOnly, Category="Population|Test", meta=(ClampMin="1"))
+	int32 InitialTestPageCount = 2;
+
+	UPROPERTY(EditDefaultsOnly, Category="Population|Test")
+	FVector TestSpawnOffsetPerPage = FVector(150.f, 0.f, 0.f);
+
 private:
 	
 	void RebuildCacheIfNeeded();

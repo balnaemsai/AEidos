@@ -1,0 +1,6 @@
+Name,SkillId,DisplayName,BaseExpToLevel,ExpGrowthFactor,MultiplierPerLevel,MaxLevel,RelatedSkillCoefficients,bIsActiveCombatSkill,CombatActionPointCost,CombatRangeCm,bRequiresTarget,bTargetHostileOnly,CombatDamageAmount
+Construction,Construction,"Construction",100,1.12,0.05,50,"()",False,1,0,False,False,0
+Gathering,Gathering,"Gathering",100,1.10,0.04,50,"()",False,1,0,False,False,0
+Endurance,Endurance,"Endurance",120,1.10,0.03,50,"()",False,1,0,False,False,0
+Slash,Slash,"Slash",120,1.15,0.05,30,"()",True,1,170,True,True,22
+Firebolt,Firebolt,"Firebolt",140,1.18,0.06,30,"()",True,2,900,True,True,30

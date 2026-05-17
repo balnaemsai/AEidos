@@ -144,30 +144,30 @@ void UGIS_SaveLoad::GatherSaveParticipants(UWorld& World, TArray<UObject*>& OutP
 		}
 	}
 
-	OutParticipants.Sort([](UObject* const& A, UObject* const& B)
+	OutParticipants.Sort([](const UObject& A, const UObject& B)
 	{
-		const bool bAIsActor = A && A->IsA<AActor>();
-		const bool bBIsActor = B && B->IsA<AActor>();
+		const bool bAIsActor = A.IsA<AActor>();
+		const bool bBIsActor = B.IsA<AActor>();
 		if (bAIsActor != bBIsActor)
 		{
 			return !bAIsActor;
 		}
 
-		const int32 OrderA = (A && A->GetClass()->ImplementsInterface(USimSystem::StaticClass())) ? ISimSystem::Execute_GetSimOrder(A) : 0;
-		const int32 OrderB = (B && B->GetClass()->ImplementsInterface(USimSystem::StaticClass())) ? ISimSystem::Execute_GetSimOrder(B) : 0;
+		const int32 OrderA = A.GetClass()->ImplementsInterface(USimSystem::StaticClass()) ? ISimSystem::Execute_GetSimOrder(const_cast<UObject*>(&A)) : 0;
+		const int32 OrderB = B.GetClass()->ImplementsInterface(USimSystem::StaticClass()) ? ISimSystem::Execute_GetSimOrder(const_cast<UObject*>(&B)) : 0;
 		if (OrderA != OrderB)
 		{
 			return OrderA < OrderB;
 		}
 
-		const FString ClassA = A ? A->GetClass()->GetName() : FString();
-		const FString ClassB = B ? B->GetClass()->GetName() : FString();
+		const FString ClassA = A.GetClass()->GetName();
+		const FString ClassB = B.GetClass()->GetName();
 		if (ClassA != ClassB)
 		{
 			return ClassA < ClassB;
 		}
 
-		return A && B ? A->GetName() < B->GetName() : A != nullptr;
+		return A.GetName() < B.GetName();
 	});
 }
 

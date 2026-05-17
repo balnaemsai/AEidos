@@ -25,6 +25,9 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void SetPanel(EInGamePanel NewPanel);
 
+	UFUNCTION(BlueprintPure)
+	EInGamePanel GetCurrentPanel() const { return CurrentPanel; }
+
 protected:
 	UPROPERTY(meta=(BindWidget)) UHorizontalBox* HorizontalBox;
 	
@@ -40,9 +43,10 @@ protected:
 	TWeakObjectPtr<UPanel_Build> CachedBuildPanel;
 
 private:
-	EInGamePanel CurrentPanel = EInGamePanel::Recruit;
+	EInGamePanel CurrentPanel = EInGamePanel::None;
 	int32 PanelToIndex(EInGamePanel Panel) const;
 
 	void CallShown(UWidget* Widget);
 	void CallHidden(UWidget* Widget);
+	void RefreshHostVisibility();
 };

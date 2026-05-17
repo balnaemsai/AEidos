@@ -2,6 +2,7 @@
 
 
 #include "Entities/Page/PageCharacter.h"
+#include "Combat/WS_CombatDirector.h"
 #include "Entities/Page/Components/StatsComponent.h"
 #include "Entities/Page/Components/SkillComponent.h"
 #include "Framework/EidosPlayerController.h"
@@ -58,6 +59,10 @@ APageCharacter::APageCharacter()
 
 	SetViewMode(EPageViewMode::ThirdPerson);
 
+	CombatActionSlots.SetNum(10);
+	CombatActionSlots[9].ActionType = EPageCombatActionType::EndTurn;
+	CombatActionSlots[9].DisplayName = FText::FromString(TEXT("End Turn"));
+
 }
 
 void APageCharacter::SetViewMode(EPageViewMode NewMode)
@@ -77,7 +82,34 @@ void APageCharacter::ToggleViewMode()
 void APageCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-	
+
+	PreviousWorldLocation = GetActorLocation();
+}
+
+void APageCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	const FVector CurrentLocation = GetActorLocation();
+	if (bInTurnCombat && bHasActiveCombatTurn && IsFriendly())
+	{
+		const float TravelDistanceCm = FVector::Dist2D(CurrentLocation, PreviousWorldLocation);
+		if (TravelDistanceCm > 0.5f)
+		{
+			if (UWS_CombatDirector* CombatDirector = GetWorld() ? GetWorld()->GetSubsystem<UWS_CombatDirector>() : nullptr)
+			{
+				if (!CombatDirector->NotifyPageMoved(this, TravelDistanceCm))
+				{
+					if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+					{
+						MoveComp->StopMovementImmediately();
+					}
+				}
+			}
+		}
+	}
+
+	PreviousWorldLocation = CurrentLocation;
 }
 
 // Called to bind functionality to input
@@ -92,6 +124,11 @@ void APageCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 
 void APageCharacter::HandleMove(const FInputActionValue& Value)
 {
+	if (bInTurnCombat && !bHasActiveCombatTurn)
+	{
+		return;
+	}
+
 	const FVector2D MoveInput = Value.Get<FVector2D>();
 
 	if (MoveInput.IsNearlyZero())
@@ -205,4 +242,65 @@ int32 APageCharacter::GetSkillLevel(FName SkillId) const
 void APageCharacter::SetPageEntityId(int32 NewPageEntityId)
 {
 	PageEntityId = FMath::Max(0, NewPageEntityId);
+}
+
+void APageCharacter::SetFaction(EPageFaction NewFaction)
+{
+	Faction = NewFaction;
+}
+
+bool APageCharacter::IsHostileTo(const APageCharacter* OtherPage) const
+{
+	return OtherPage && OtherPage != this && Faction != OtherPage->Faction;
+}
+
+void APageCharacter::SetIsInDungeon(bool bNewIsInDungeon)
+{
+	bIsInDungeon = bNewIsInDungeon;
+}
+
+void APageCharacter::SetTurnCombatState(bool bNewInTurnCombat, bool bNewHasActiveCombatTurn)
+{
+	const bool bWasInTurnCombat = bInTurnCombat;
+	const bool bWasActiveTurn = bHasActiveCombatTurn;
+
+	bInTurnCombat = bNewInTurnCombat;
+	bHasActiveCombatTurn = bNewHasActiveCombatTurn;
+
+	if ((bInTurnCombat && (!bHasActiveCombatTurn || !bWasInTurnCombat || !bWasActiveTurn))
+		|| (!bInTurnCombat && bWasInTurnCombat))
+	{
+		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+		{
+			MoveComp->StopMovementImmediately();
+		}
+	}
+
+	PreviousWorldLocation = GetActorLocation();
+}
+
+bool APageCharacter::GetCombatActionSlot(int32 SlotIndex, FPageCombatActionSlot& OutSlot) const
+{
+	if (!CombatActionSlots.IsValidIndex(SlotIndex))
+	{
+		return false;
+	}
+
+	OutSlot = CombatActionSlots[SlotIndex];
+	return true;
+}
+
+void APageCharacter::SetCombatActionSlot(int32 SlotIndex, const FPageCombatActionSlot& InSlot)
+{
+	if (SlotIndex < 0)
+	{
+		return;
+	}
+
+	if (CombatActionSlots.Num() <= SlotIndex)
+	{
+		CombatActionSlots.SetNum(SlotIndex + 1);
+	}
+
+	CombatActionSlots[SlotIndex] = InSlot;
 }

@@ -27,6 +27,9 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void SetActivePanel(EInGamePanel Panel);
 
+	UFUNCTION(BlueprintPure)
+	EInGamePanel GetActivePanel() const { return ActivePanel; }
+
 protected:
 	virtual void NativeConstruct() override;
 	
@@ -56,6 +59,8 @@ protected:
 	float ActiveSaturationMul = 1.10f;   // 채도 배수
 
 private:
+	EInGamePanel ActivePanel = EInGamePanel::None;
+
 	void InitStylesFrom(UButton* AnyButton);
 	static FSlateBrush BrightenBrush(const FSlateBrush& InBrush, float BrightMul, float SatMul);
 	

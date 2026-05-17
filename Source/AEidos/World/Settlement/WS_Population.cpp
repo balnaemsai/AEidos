@@ -75,6 +75,11 @@ void UWS_Population::RebuildCacheIfNeeded()
 			continue;
 		}
 
+		if (!Page->IsFriendly())
+		{
+			continue;
+		}
+
 		const int32 PageId = EnsurePageEntityId(Page);
 		CachedPages.Add(Page);
 		CachedPagesById.Add(PageId, Page);
@@ -214,14 +219,23 @@ void UWS_Population::EnsureTestPageSpawned()
 		return;
 	}
 
-	TSubclassOf<APageCharacter> SpawnClass = TestPageClass ? TestPageClass : APageCharacter::StaticClass();
+	TSubclassOf<APageCharacter> SpawnClass = TestPageClass;
+	if (!SpawnClass)
+	{
+		SpawnClass = APageCharacter::StaticClass();
+	}
 
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
-	if (APageCharacter* Spawned = World->SpawnActor<APageCharacter>(SpawnClass, TestSpawnLocation, FRotator::ZeroRotator, Params))
+	const int32 NumPagesToSpawn = FMath::Max(1, InitialTestPageCount);
+	for (int32 Index = 0; Index < NumPagesToSpawn; ++Index)
 	{
-		Spawned->SetPageEntityId(NextPageId++);
+		const FVector SpawnLocation = TestSpawnLocation + (TestSpawnOffsetPerPage * Index);
+		if (APageCharacter* Spawned = World->SpawnActor<APageCharacter>(SpawnClass, SpawnLocation, FRotator::ZeroRotator, Params))
+		{
+			Spawned->SetPageEntityId(NextPageId++);
+		}
 	}
 
 	bCacheDirty = true;
@@ -251,6 +265,11 @@ bool UWS_Population::IsPageAvailable_Implementation(int32 PageId) const
 
 	APageCharacter* Page = MutableThis->FindPageById(PageId);
 	if (!Page)
+	{
+		return false;
+	}
+
+	if (Page->IsInDungeon())
 	{
 		return false;
 	}
