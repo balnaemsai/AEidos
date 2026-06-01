@@ -1,4 +1,4 @@
-Name,WorkId,DisplayName,TotalWork,BaseWorkRate,MaxWorkers,SiteTag,Costs,Rewards,PrimarySkillId,XPPerSecond,XPFactor
+﻿Name,WorkId,DisplayName,TotalWork,BaseWorkRate,MaxWorkers,SiteTag,Costs,Rewards,PrimarySkillId,XPPerSecond,XPFactor
 Construct_Orchard,Construct_Orchard,Construct_Orchard,18,1,2,Build,"((ResourceId=""EP"",Amount=20),(ResourceId=""Wood"",Amount=25))",(),Construction,1.2,1
 Construct_Workbench,Construct_Workbench,Construct_Workbench,12,1,2,Build,"((ResourceId=""EP"",Amount=15),(ResourceId=""Wood"",Amount=12))",(),Construction,1,1
 Construct_Quarry,Construct_Quarry,Construct_Quarry,22,1,2,Build,"((ResourceId=""EP"",Amount=30),(ResourceId=""Wood"",Amount=35),(ResourceId=""Stone"",Amount=20))",(),Construction,1.4,1.1

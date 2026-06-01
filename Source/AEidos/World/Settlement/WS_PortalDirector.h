@@ -77,6 +77,9 @@ private:
 	float TimeSinceLastSpawn = 0.f;
 
 	UPROPERTY()
+	TMap<FName, float> TimeSinceLastSpawnByDef;
+
+	UPROPERTY()
 	bool bDirty = false;
 
 	UPROPERTY(Transient)
@@ -88,6 +91,8 @@ private:
 	UGIS_DataRegistry* GetRegistry() const;
 	const FPortalDefinitionRow* GetPortalDef(FName PortalDefId) const;
 	const FPortalDefinitionRow* GetDefaultPortalDef() const;
+	TArray<FName> GetAutoSpawnPortalDefIds() const;
+	int32 GetActivePortalCountForDef(FName PortalDefId) const;
 
 	void CheckSpawn(float FixedDeltaSeconds);
 	void UpdatePortalTimer(float FixedDeltaSeconds);
@@ -104,9 +109,12 @@ private:
 
 	static FName Key_NextPortalId();
 	static FName Key_TimeSinceLastSpawn();
+	static FName Key_SpawnTimers();
 	static FName Key_ActivePortals();
 
 	static FString EncodePortalStates(const TMap<int32, FPortalState>& InStates);
 	static void DecodePortalStates(const FString& Encoded, TArray<FPortalState>& OutStates);
+	static FString EncodeSpawnTimers(const TMap<FName, float>& InTimers);
+	static void DecodeSpawnTimers(const FString& Encoded, TMap<FName, float>& OutTimers);
 	
 };

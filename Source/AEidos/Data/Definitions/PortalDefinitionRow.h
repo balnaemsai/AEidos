@@ -16,7 +16,13 @@ struct FPortalDefinitionRow : public FTableRowBase
 	TSoftClassPtr<AActor> PortalActorClass;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	bool bEnableAutoSpawn = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	float SpawnIntervalSeconds = 180.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="0"))
+	int32 MaxActiveCount = 1;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	float RaidDelaySeconds = 300.f;

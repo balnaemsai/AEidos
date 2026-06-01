@@ -1,34 +1,33 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "UI/HUD/Panels/PanelHostWidget.h"
 #include "UI/HUD/Panels/PanelLifeCycle.h"
-#include "UI/HUD/Panels/Panel_Build.h"
+#include "UI/HUD/Panels/Panel_Buildings.h"
+#include "UI/HUD/Panels/Panel_Dungeons.h"
+#include "UI/HUD/Panels/Panel_Items.h"
+#include "UI/HUD/Panels/Panel_Pages.h"
+#include "UI/HUD/Panels/Panel_Research.h"
 #include "FrameWork/EidosPlayerController.h"
-#include "UI/HUD/HUDRootWidget.h"
 
 namespace
 {
-	const FName TerritoryExpansionBuildId(TEXT("TerritoryExpansion"));
+	const FName PanelHost_TerritoryExpansionBuildId(TEXT("TerritoryExpansion"));
 }
 
 void UPanelHostWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
-
 	RefreshHostVisibility();
 	BindActiveBuildPanel();
 }
 
 void UPanelHostWidget::HandleBuildStartRequested(FName BuildingId)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[PanelHost] HandleBuildStartRequested : %s"), *BuildingId.ToString());
-
 	if (APlayerController* PC = GetOwningPlayer())
 	{
 		if (AEidosPlayerController* EidosPC = Cast<AEidosPlayerController>(PC))
 		{
-			if (BuildingId == TerritoryExpansionBuildId)
+			if (BuildingId == PanelHost_TerritoryExpansionBuildId)
 			{
 				EidosPC->BeginTerritoryExpansionPlacement();
 			}
@@ -40,30 +39,64 @@ void UPanelHostWidget::HandleBuildStartRequested(FName BuildingId)
 	}
 }
 
-int32 UPanelHostWidget::PanelToIndex(EInGamePanel Panel) const
+UWidget* UPanelHostWidget::FindPanelWidget(EInGamePanel Panel) const
 {
-	switch (Panel)
+	if (!Switcher_Center)
 	{
-	case EInGamePanel::None:      return INDEX_NONE;
-	case EInGamePanel::Recruit:   return 0;
-	case EInGamePanel::Craft:     return 1;
-	case EInGamePanel::Research:  return 2;
-	case EInGamePanel::Build:     return 3;
-	case EInGamePanel::Buildings: return 4;
-	case EInGamePanel::Dungeons:  return 5;
-	case EInGamePanel::Pages:     return 6;
-	case EInGamePanel::Items:     return 7;
-	case EInGamePanel::Relations: return 8;
-	case EInGamePanel::Skill:     return 9;
+		return nullptr;
 	}
-	return 0;
+
+	for (int32 Index = 0; Index < Switcher_Center->GetNumWidgets(); ++Index)
+	{
+		UWidget* Child = Switcher_Center->GetWidgetAtIndex(Index);
+		if (!Child)
+		{
+			continue;
+		}
+
+		switch (Panel)
+		{
+		case EInGamePanel::Buildings:
+			if (Child->IsA<UPanel_Buildings>())
+			{
+				return Child;
+			}
+			break;
+		case EInGamePanel::Pages:
+			if (Child->IsA<UPanel_Pages>())
+			{
+				return Child;
+			}
+			break;
+		case EInGamePanel::Dungeons:
+			if (Child->IsA<UPanel_Dungeons>())
+			{
+				return Child;
+			}
+			break;
+		case EInGamePanel::Items:
+			if (Child->IsA<UPanel_Items>())
+			{
+				return Child;
+			}
+			break;
+		case EInGamePanel::Research:
+			if (Child->IsA<UPanel_Research>())
+			{
+				return Child;
+			}
+			break;
+		default:
+			break;
+		}
+	}
+
+	return nullptr;
 }
 
 void UPanelHostWidget::CallShown(UWidget* Widget)
 {
-	if (!Widget) return;
-
-	if (Widget->GetClass()->ImplementsInterface(UPanelLifecycle::StaticClass()))
+	if (Widget && Widget->GetClass()->ImplementsInterface(UPanelLifecycle::StaticClass()))
 	{
 		IPanelLifecycle::Execute_OnPanelShown(Widget);
 	}
@@ -71,9 +104,7 @@ void UPanelHostWidget::CallShown(UWidget* Widget)
 
 void UPanelHostWidget::CallHidden(UWidget* Widget)
 {
-	if (!Widget) return;
-
-	if (Widget->GetClass()->ImplementsInterface(UPanelLifecycle::StaticClass()))
+	if (Widget && Widget->GetClass()->ImplementsInterface(UPanelLifecycle::StaticClass()))
 	{
 		IPanelLifecycle::Execute_OnPanelHidden(Widget);
 	}
@@ -99,15 +130,16 @@ void UPanelHostWidget::SetPanel(EInGamePanel NewPanel)
 
 	CurrentPanel = NewPanel;
 
-	const int32 PanelIndex = PanelToIndex(NewPanel);
-	if (PanelIndex != INDEX_NONE)
+	if (CurrentPanel != EInGamePanel::None)
 	{
-		Switcher_Center->SetActiveWidgetIndex(PanelIndex);
-		CallShown(Switcher_Center->GetActiveWidget());
+		if (UWidget* TargetWidget = FindPanelWidget(CurrentPanel))
+		{
+			Switcher_Center->SetActiveWidget(TargetWidget);
+			CallShown(TargetWidget);
+		}
 	}
 
 	RefreshHostVisibility();
-
 	BindActiveBuildPanel();
 }
 
@@ -119,28 +151,20 @@ void UPanelHostWidget::BindActiveBuildPanel()
 	}
 
 	UWidget* ActiveWidget = Switcher_Center->GetActiveWidget();
-	UE_LOG(LogTemp, Warning, TEXT("[PanelHost] ActiveWidget = %s"), *GetNameSafe(ActiveWidget));
-
-	UPanel_Build* Build = Cast<UPanel_Build>(ActiveWidget);
+	UPanel_Buildings* Build = Cast<UPanel_Buildings>(ActiveWidget);
 	if (!Build)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[PanelHost] ActiveWidget is not BuildPanel"));
 		return;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[PanelHost] BuildPanel Found : %s"), *Build->GetName());
-
 	if (CachedBuildPanel.Get() == Build)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[PanelHost] BuildPanel Already Exists"));
 		return;
 	}
 
 	Build->OnBuildStartRequested.RemoveDynamic(this, &UPanelHostWidget::HandleBuildStartRequested);
 	Build->OnBuildStartRequested.AddDynamic(this, &UPanelHostWidget::HandleBuildStartRequested);
-
 	CachedBuildPanel = Build;
-	UE_LOG(LogTemp, Warning, TEXT("[PanelHost] BuildPanel Created"));
 }
 
 void UPanelHostWidget::RefreshHostVisibility()

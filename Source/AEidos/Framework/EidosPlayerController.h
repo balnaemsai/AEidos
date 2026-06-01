@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -70,7 +70,7 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
 	UCameraModeComponent* CameraMode;
 
-	// 공통 단축키(IMC)
+	// 怨듯넻 ?⑥텞??IMC)
 	UPROPERTY(EditDefaultsOnly, Category="Input")
 	UInputMappingContext* CommonIMC;
 
@@ -160,7 +160,7 @@ protected:
 	void ConfirmTerritoryExpansionPlacement();
 	void UpdateTerritoryPreview();
 	void SpawnOrRefreshTerritoryPreview();
-	APageCharacter* FindFocusedHostileCombatTarget() const;
+	AActor* FindFocusedCombatActionTarget() const;
 	AActor* FindFocusedInteractActor() const;
 	bool TryInteractWithActor(AActor* TargetActor);
 	void SelectAdjacentPage(int32 Direction);
@@ -198,3 +198,4 @@ protected:
 	bool bFirstPersonUIFocusMode = false;
 	
 };
+

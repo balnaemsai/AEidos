@@ -44,6 +44,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Stats")
 	bool IsDead() const { return Health <= 0.f; }
 
+	UFUNCTION(BlueprintCallable, Category="Stats|Combat")
+	float GetCombatAgility() const { return CombatAgility; }
+
+	UFUNCTION(BlueprintCallable, Category="Stats|Combat")
+	float GetCombatActionThreshold() const { return CombatActionThreshold; }
+
+	UFUNCTION(BlueprintCallable, Category="Stats|Combat")
+	int32 GetCombatActionPointsPerTurn() const { return CombatActionPointsPerTurn; }
+
 	// --- Mutations (Commit에서만 호출하는 걸 권장) ---
 	UFUNCTION(BlueprintCallable, Category="Stats")
 	void ApplyDelta(const FPageStatsDelta& Delta);
@@ -69,6 +78,15 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Stats", meta=(ClampMin="0.0"))
 	float Health = 100.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Stats|Combat", meta=(ClampMin="0.1"))
+	float CombatAgility = 5.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Stats|Combat", meta=(ClampMin="1.0"))
+	float CombatActionThreshold = 10.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Stats|Combat", meta=(ClampMin="1"))
+	int32 CombatActionPointsPerTurn = 2;
 
 	void ClampAll();
 };

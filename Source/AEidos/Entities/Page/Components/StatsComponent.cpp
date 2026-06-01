@@ -15,6 +15,9 @@ void UStatsComponent::ClampAll()
 	Fatigue = FMath::Clamp(Fatigue, 0.f, 100.f);
 	MaxHealth = FMath::Max(1.f, MaxHealth);
 	Health = FMath::Clamp(Health, 0.f, MaxHealth);
+	CombatAgility = FMath::Max(0.1f, CombatAgility);
+	CombatActionThreshold = FMath::Max(1.f, CombatActionThreshold);
+	CombatActionPointsPerTurn = FMath::Max(1, CombatActionPointsPerTurn);
 }
 
 void UStatsComponent::ApplyDelta(const FPageStatsDelta& Delta)

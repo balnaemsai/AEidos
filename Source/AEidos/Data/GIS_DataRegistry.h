@@ -55,6 +55,7 @@ class AEIDOS_API UGIS_DataRegistry : public UGameInstanceSubsystem
 
 	UDataTable* GetPortalTable() const;
 	const FPortalDefinitionRow* GetPortalDef(FName PortalDefId) const;
+	TArray<FName> GetAllPortalDefIds() const;
 
 	private:
 	TSoftObjectPtr<UEidosDataRegistryConfig> ConfigRef;

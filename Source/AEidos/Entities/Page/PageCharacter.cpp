@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "Entities/Page/PageCharacter.h"
@@ -14,11 +14,17 @@
 #include "GameFramework/PlayerController.h"
 #include "Camera/CameraComponent.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "UObject/ConstructorHelpers.h"
 
 // Sets default values
 APageCharacter::APageCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
+
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMeshFinder(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> SphereMaterialFinder(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
 
 	Stats = CreateDefaultSubobject<UStatsComponent>(TEXT("StatsComponent"));
 	Skills = CreateDefaultSubobject<USkillComponent>(TEXT("SkillComponent"));
@@ -45,7 +51,7 @@ APageCharacter::APageCharacter()
 	SpringArm->bInheritRoll  = false;
 	
 	SpringArm->TargetArmLength = 700.f;
-	SpringArm->bDoCollisionTest = false; // 원하면 켜도 됨
+	SpringArm->bDoCollisionTest = false; // ?먰븯硫?耳쒕룄 ??
 	SpringArm->SetRelativeRotation(FRotator::ZeroRotator);
 
 	ThirdPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("ThirdPersonCamera"));
@@ -57,11 +63,31 @@ APageCharacter::APageCharacter()
 	FirstPersonCamera->SetRelativeLocation(FVector(20.f, 0.f, 70.f));
 	FirstPersonCamera->bUsePawnControlRotation = true;
 
+	CombatIndicatorMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CombatIndicatorMesh"));
+	CombatIndicatorMesh->SetupAttachment(GetRootComponent());
+	CombatIndicatorMesh->SetRelativeLocation(FVector(0.f, 0.f, 120.f));
+	CombatIndicatorMesh->SetRelativeScale3D(FVector(0.18f));
+	CombatIndicatorMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	CombatIndicatorMesh->SetGenerateOverlapEvents(false);
+	CombatIndicatorMesh->SetCastShadow(false);
+	CombatIndicatorMesh->SetHiddenInGame(true);
+	CombatIndicatorMesh->SetVisibility(false);
+	CombatIndicatorMesh->SetReceivesDecals(false);
+	CombatIndicatorMesh->SetCanEverAffectNavigation(false);
+
+	if (SphereMeshFinder.Succeeded())
+	{
+		CombatIndicatorMesh->SetStaticMesh(SphereMeshFinder.Object);
+	}
+
+	if (SphereMaterialFinder.Succeeded())
+	{
+		CombatIndicatorMesh->SetMaterial(0, SphereMaterialFinder.Object);
+	}
+
 	SetViewMode(EPageViewMode::ThirdPerson);
 
 	CombatActionSlots.SetNum(10);
-	CombatActionSlots[9].ActionType = EPageCombatActionType::EndTurn;
-	CombatActionSlots[9].DisplayName = FText::FromString(TEXT("End Turn"));
 
 }
 
@@ -84,6 +110,17 @@ void APageCharacter::BeginPlay()
 	Super::BeginPlay();
 
 	PreviousWorldLocation = GetActorLocation();
+
+	if (CombatIndicatorMesh)
+	{
+		if (UMaterialInstanceDynamic* IndicatorMID = CombatIndicatorMesh->CreateAndSetMaterialInstanceDynamic(0))
+		{
+			const FLinearColor RedTint(1.0f, 0.1f, 0.1f, 1.0f);
+			IndicatorMID->SetVectorParameterValue(TEXT("Color"), RedTint);
+			IndicatorMID->SetVectorParameterValue(TEXT("BaseColor"), RedTint);
+			IndicatorMID->SetVectorParameterValue(TEXT("EmissiveColor"), RedTint * 8.f);
+		}
+	}
 }
 
 void APageCharacter::Tick(float DeltaSeconds)
@@ -141,7 +178,7 @@ void APageCharacter::HandleMove(const FInputActionValue& Value)
 		
 		if (PC && PC->GetCameraMode())
 		{
-			const float Yaw = PC->GetCameraMode()->GetOrbitYawWorldDeg(); // getter 만들기
+			const float Yaw = PC->GetCameraMode()->GetOrbitYawWorldDeg(); // getter 留뚮뱾湲?
 			const FRotator YawRot(0.f, Yaw, 0.f);
 
 			const FVector Forward = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
@@ -167,7 +204,7 @@ void APageCharacter::AddWorkSkillXP(FName SkillId, float WorkRatePerSecond, floa
 		return;
 	}
 
-	// Work는 반드시 FixedTick 기준으로 호출
+	// Work??諛섎뱶??FixedTick 湲곗??쇰줈 ?몄텧
 	Skills->AddContinuousSkillXP(SkillId, WorkRatePerSecond, FixedDeltaSeconds, XPFactor);
 }
 
@@ -267,6 +304,12 @@ void APageCharacter::SetTurnCombatState(bool bNewInTurnCombat, bool bNewHasActiv
 	bInTurnCombat = bNewInTurnCombat;
 	bHasActiveCombatTurn = bNewHasActiveCombatTurn;
 
+	if (CombatIndicatorMesh)
+	{
+		CombatIndicatorMesh->SetHiddenInGame(!bInTurnCombat);
+		CombatIndicatorMesh->SetVisibility(bInTurnCombat, true);
+	}
+
 	if ((bInTurnCombat && (!bHasActiveCombatTurn || !bWasInTurnCombat || !bWasActiveTurn))
 		|| (!bInTurnCombat && bWasInTurnCombat))
 	{
@@ -304,3 +347,12 @@ void APageCharacter::SetCombatActionSlot(int32 SlotIndex, const FPageCombatActio
 
 	CombatActionSlots[SlotIndex] = InSlot;
 }
+
+void APageCharacter::SetInventorySummary(float InCurrentVolume, float InMaxVolume, float InCurrentWeight, float InMaxWeight)
+{
+	CurrentInventoryVolume = FMath::Max(0.f, InCurrentVolume);
+	MaxInventoryVolume = FMath::Max(CurrentInventoryVolume, InMaxVolume);
+	CurrentInventoryWeight = FMath::Max(0.f, InCurrentWeight);
+	MaxInventoryWeight = FMath::Max(CurrentInventoryWeight, InMaxWeight);
+}
+

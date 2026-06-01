@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "World/Dungeon/WS_DungeonRuntime.h"
@@ -14,7 +14,9 @@
 #include "GameFramework/PlayerStart.h"
 #include "Components/CapsuleComponent.h"
 #include "World/Dungeon/DungeonSettlementPreset.h"
+#include "World/Dungeon/DungeonCoreActor.h"
 #include "World/Settlement/TerritoryChunkActor.h"
+#include "World/Settlement/WS_PortalDirector.h"
 #include "World/Settlement/WS_SettlementSpace.h"
 
 namespace
@@ -56,6 +58,7 @@ UWS_DungeonRuntime::UWS_DungeonRuntime()
 		FSoftObjectPath(TEXT("/Game/Data/DA_TestDungeon.DA_TestDungeon")));
 	DefaultEnemyPageClass = TSoftClassPtr<APageCharacter>(
 		FSoftObjectPath(TEXT("/Game/Blueprints/BP_PageCharacter.BP_PageCharacter_C")));
+	DefaultDungeonCoreClass = ADungeonCoreActor::StaticClass();
 }
 
 void UWS_DungeonRuntime::Initialize(FSubsystemCollectionBase& Collection)
@@ -255,6 +258,7 @@ void UWS_DungeonRuntime::SpawnPresetLayoutIntoDungeon(ULevel* LoadedLevel)
 
 	SpawnDungeonChunks(LoadedLevel, Preset);
 	SpawnDungeonBuildings(LoadedLevel, Preset);
+	SpawnDungeonCore(LoadedLevel, Preset);
 	SpawnDungeonEnemies(LoadedLevel, Preset);
 
 	UE_LOG(LogTemp, Log,
@@ -351,6 +355,25 @@ void UWS_DungeonRuntime::SpawnDungeonBuildings(ULevel* LoadedLevel, const UDunge
 		}
 	}
 }
+void UWS_DungeonRuntime::SpawnDungeonCore(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset)
+{
+	if (!LoadedLevel || !Preset || !DefaultDungeonCoreClass)
+	{
+		return;
+	}
+
+	FActorSpawnParameters Params;
+	Params.OverrideLevel = LoadedLevel;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	const FTransform SpawnTransform = MakeDungeonWorldTransform(Preset->CoreTransform);
+	if (ADungeonCoreActor* CoreActor = GetWorld()->SpawnActor<ADungeonCoreActor>(DefaultDungeonCoreClass, SpawnTransform, Params))
+	{
+		CoreActor->OnCoreDestroyed.AddDynamic(this, &UWS_DungeonRuntime::HandleDungeonCoreDestroyed);
+		ActiveSession.DungeonCore = CoreActor;
+		ActiveSession.SpawnedActors.Add(CoreActor);
+	}
+}
 
 void UWS_DungeonRuntime::SpawnDungeonEnemies(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset)
 {
@@ -408,6 +431,14 @@ void UWS_DungeonRuntime::SpawnDungeonEnemies(ULevel* LoadedLevel, const UDungeon
 
 void UWS_DungeonRuntime::ResetActiveSession()
 {
+	if (ULevelStreamingDynamic* StreamingLevel = ActiveSession.StreamingLevel.Get())
+	{
+		StreamingLevel->OnLevelShown.RemoveDynamic(this, &UWS_DungeonRuntime::HandleActiveDungeonLevelShown);
+		StreamingLevel->SetShouldBeVisible(false);
+		StreamingLevel->SetShouldBeLoaded(false);
+		StreamingLevel->SetIsRequestingUnloadAndRemoval(true);
+	}
+
 	for (AActor* SpawnedActor : ActiveSession.SpawnedActors)
 	{
 		if (IsValid(SpawnedActor))
@@ -416,12 +447,43 @@ void UWS_DungeonRuntime::ResetActiveSession()
 		}
 	}
 
-	if (ULevelStreamingDynamic* StreamingLevel = ActiveSession.StreamingLevel.Get())
+	ActiveSession = FDungeonSessionRuntime{};
+}
+
+void UWS_DungeonRuntime::HandleDungeonCoreDestroyed(ADungeonCoreActor* DestroyedCore)
+{
+	if (!DestroyedCore || ActiveSession.DungeonCore.Get() != DestroyedCore)
 	{
-		StreamingLevel->OnLevelShown.RemoveDynamic(this, &UWS_DungeonRuntime::HandleActiveDungeonLevelShown);
+		return;
 	}
 
-	ActiveSession = FDungeonSessionRuntime{};
+	UE_LOG(LogTemp, Log, TEXT("[DungeonRuntime] Dungeon core destroyed for PortalId=%d"), ActiveSession.PortalId);
+	ExitActiveDungeon(true);
+}
+
+void UWS_DungeonRuntime::ExitActiveDungeon(bool bDungeonCleared)
+{
+	if (APageCharacter* Page = ActiveSession.OccupyingPage.Get())
+	{
+		const FTransform ReturnTransform = ResolveGroundedCharacterTransform(GetWorld(), ActiveSession.ReturnTransform, Page);
+		Page->SetActorLocationAndRotation(
+			ReturnTransform.GetLocation(),
+			ReturnTransform.GetRotation().Rotator(),
+			false,
+			nullptr,
+			ETeleportType::TeleportPhysics);
+		Page->SetIsInDungeon(false);
+	}
+
+	if (bDungeonCleared)
+	{
+		if (UWS_PortalDirector* PortalDirector = GetWorld() ? GetWorld()->GetSubsystem<UWS_PortalDirector>() : nullptr)
+		{
+			PortalDirector->OnDungeonCleared(ActiveSession.PortalId);
+		}
+	}
+
+	ResetActiveSession();
 }
 
 void UWS_DungeonRuntime::MovePageIntoDungeon(APageCharacter* Page, const FTransform& EntryTransform)
@@ -440,3 +502,7 @@ void UWS_DungeonRuntime::MovePageIntoDungeon(APageCharacter* Page, const FTransf
 		ETeleportType::TeleportPhysics);
 	Page->SetIsInDungeon(true);
 }
+
+
+
+

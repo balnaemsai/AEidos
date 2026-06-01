@@ -1,6 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
@@ -8,6 +6,7 @@
 
 class APageCharacter;
 class AActor;
+class ADungeonCoreActor;
 class ATerritoryChunkActor;
 class UDungeonSettlementPreset;
 class ULevel;
@@ -34,6 +33,7 @@ struct FDungeonSessionRuntime
 	UPROPERTY()
 	TArray<TObjectPtr<AActor>> SpawnedActors;
 
+	TWeakObjectPtr<ADungeonCoreActor> DungeonCore;
 	TWeakObjectPtr<APageCharacter> OccupyingPage;
 	TWeakObjectPtr<ULevelStreamingDynamic> StreamingLevel;
 };
@@ -61,12 +61,17 @@ private:
 	UFUNCTION()
 	void HandleActiveDungeonLevelShown();
 
+	UFUNCTION()
+	void HandleDungeonCoreDestroyed(ADungeonCoreActor* DestroyedCore);
+
 	FTransform ResolveDungeonEntryTransform(ULevel* LoadedLevel) const;
 	FTransform MakeDungeonWorldTransform(const FTransform& LocalTransform) const;
 	void SpawnPresetLayoutIntoDungeon(ULevel* LoadedLevel);
 	void SpawnDungeonChunks(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
 	void SpawnDungeonBuildings(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
+	void SpawnDungeonCore(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
 	void SpawnDungeonEnemies(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
+	void ExitActiveDungeon(bool bDungeonCleared);
 	void ResetActiveSession();
 	void MovePageIntoDungeon(APageCharacter* Page, const FTransform& EntryTransform);
 
@@ -78,6 +83,9 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category="Dungeon")
 	TSoftClassPtr<APageCharacter> DefaultEnemyPageClass;
+
+	UPROPERTY(EditDefaultsOnly, Category="Dungeon")
+	TSubclassOf<ADungeonCoreActor> DefaultDungeonCoreClass;
 
 	UPROPERTY(EditDefaultsOnly, Category="Dungeon")
 	FTransform DungeonLevelTransform = FTransform(FRotator::ZeroRotator, FVector(500000.f, 0.f, 0.f));

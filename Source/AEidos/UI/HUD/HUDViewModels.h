@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "Entities/Page/PageCharacter.h"
@@ -27,6 +27,27 @@ struct FPageQuickSlotView
 
 	UPROPERTY(BlueprintReadOnly)
 	bool bAssigned = false;
+};
+
+USTRUCT(BlueprintType)
+struct FPageActionCandidateView
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly)
+	EPageCombatActionType ActionType = EPageCombatActionType::None;
+
+	UPROPERTY(BlueprintReadOnly)
+	FName ActionId;
+
+	UPROPERTY(BlueprintReadOnly)
+	FText DisplayName;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 ActionPointCost = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bAssignedToQuickBar = false;
 };
 
 USTRUCT(BlueprintType)
@@ -72,6 +93,21 @@ struct FPageSummaryView
 
 	UPROPERTY(BlueprintReadOnly)
 	int32 ActionPointsRemaining = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	FText StatusText;
+
+	UPROPERTY(BlueprintReadOnly)
+	float CurrentInventoryVolume = 0.f;
+
+	UPROPERTY(BlueprintReadOnly)
+	float MaxInventoryVolume = 0.f;
+
+	UPROPERTY(BlueprintReadOnly)
+	float CurrentInventoryWeight = 0.f;
+
+	UPROPERTY(BlueprintReadOnly)
+	float MaxInventoryWeight = 0.f;
 };
 
 USTRUCT(BlueprintType)

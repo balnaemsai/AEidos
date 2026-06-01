@@ -29,6 +29,9 @@ struct FPortalState
 	int32 PortalId = INDEX_NONE;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FName PortalDefId = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FVector Location = FVector::ZeroVector;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)

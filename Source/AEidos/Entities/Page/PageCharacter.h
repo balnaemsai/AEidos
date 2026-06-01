@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -14,6 +14,7 @@ class USpringArmComponent;
 class UCameraComponent;
 class USceneComponent;
 class USkillComponent;
+class UStaticMeshComponent;
 
 UENUM(BlueprintType)
 enum class EPageViewMode : uint8
@@ -101,19 +102,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Skill")
 	void AddWorkSkillXP(FName SkillId, float WorkRatePerSecond, float FixedDeltaSeconds, float XPFactor = 1.f);
 
-	// 이동 거리 기반 XP (Tick에서 내부 호출)
+	// ?대룞 嫄곕━ 湲곕컲 XP (Tick?먯꽌 ?대? ?몄텧)
 	UFUNCTION(BlueprintCallable, Category="Skill")
 	void AddMovementSkillXP(FName SkillId, float DistanceCm, float XPPerCm);
 
-	// 전투 시스템에서 호출
+	// ?꾪닾 ?쒖뒪?쒖뿉???몄텧
 	UFUNCTION(BlueprintCallable, Category="Skill")
 	void AddCombatSkillXP(FName SkillId, float FlatXP);
 
-	// 액티브 스킬 시스템에서 호출
+	// ?≫떚釉??ㅽ궗 ?쒖뒪?쒖뿉???몄텧
 	UFUNCTION(BlueprintCallable, Category="Skill")
 	void AddActiveSkillXP(FName SkillId, float FlatXP);
 
-	// 외부에서 범용적으로 직접 주고 싶을 때
+	// ?몃??먯꽌 踰붿슜?곸쑝濡?吏곸젒 二쇨퀬 ?띠쓣 ??
 	UFUNCTION(BlueprintCallable, Category="Skill")
 	void GainSkillXP(FName SkillId, float Amount, bool bPropagate = true);
 
@@ -168,6 +169,21 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Page|Combat")
 	void SetCombatActionSlot(int32 SlotIndex, const FPageCombatActionSlot& InSlot);
 
+	UFUNCTION(BlueprintPure, Category="Page|Inventory")
+	float GetCurrentInventoryVolume() const { return CurrentInventoryVolume; }
+
+	UFUNCTION(BlueprintPure, Category="Page|Inventory")
+	float GetMaxInventoryVolume() const { return MaxInventoryVolume; }
+
+	UFUNCTION(BlueprintPure, Category="Page|Inventory")
+	float GetCurrentInventoryWeight() const { return CurrentInventoryWeight; }
+
+	UFUNCTION(BlueprintPure, Category="Page|Inventory")
+	float GetMaxInventoryWeight() const { return MaxInventoryWeight; }
+
+	UFUNCTION(BlueprintCallable, Category="Page|Inventory")
+	void SetInventorySummary(float InCurrentVolume, float InMaxVolume, float InCurrentWeight, float InMaxWeight);
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page")
 	FPageJobState CurrentJobState;
 
@@ -196,6 +212,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
 	UCameraComponent* FirstPersonCamera;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Combat", meta=(AllowPrivateAccess="true"))
+	UStaticMeshComponent* CombatIndicatorMesh;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
 	EPageViewMode ViewMode = EPageViewMode::ThirdPerson;
 
@@ -204,11 +223,11 @@ protected:
 
 	void TickMovementSkillGain(float DeltaSeconds);
 
-	// 스킬 정의 기본 세팅
+	// ?ㅽ궗 ?뺤쓽 湲곕낯 ?명똿
 	void BuildDefaultSkillDefinitions();
 	void BuildDefaultWorkSkillMap();
 
-	// 내부 유틸
+	// ?대? ?좏떥
 	void EnsureSkillStateExists(FName SkillId);
 	void GrantSkillExp_Internal(FName SkillId, float ExpAmount, bool bAllowRelatedPropagation);
 	float GetTotalExpRequiredToReachLevel(FName SkillId, int32 TargetLevel) const;
@@ -235,12 +254,25 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page|Combat")
 	TArray<FPageCombatActionSlot> CombatActionSlots;
 
-	// cm 당 Running 경험치
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Page|Inventory")
+	float CurrentInventoryVolume = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Page|Inventory")
+	float MaxInventoryVolume = 500.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Page|Inventory")
+	float CurrentInventoryWeight = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Page|Inventory")
+	float MaxInventoryWeight = 50.f;
+
+	// cm ??Running 寃쏀뿕移?
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page|Skills|Tuning")
 	float RunningExpPerCm = 0.0025f;
 
-	// 너무 느린 이동은 달리기로 안 친다
+	// ?덈Т ?먮┛ ?대룞? ?щ━湲곕줈 ??移쒕떎
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page|Skills|Tuning")
 	float MinimumSpeedForRunningXP = 120.f;
 	
 };
+

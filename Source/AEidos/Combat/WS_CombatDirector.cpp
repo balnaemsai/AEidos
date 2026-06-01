@@ -1,9 +1,10 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "Combat/WS_CombatDirector.h"
 
 #include "Data/Definitions/SkillDefinitionRow.h"
+#include "World/Dungeon/DungeonCoreActor.h"
 #include "Data/GIS_DataRegistry.h"
 #include "Engine/GameInstance.h"
 #include "Entities/Page/PageCharacter.h"
@@ -77,6 +78,50 @@ APageCharacter* UWS_CombatDirector::FindClosestHostileTarget(APageCharacter* Sou
 	return ClosestEnemy;
 }
 
+TArray<APageCharacter*> UWS_CombatDirector::GatherEncounterSeedCombatants(
+	APageCharacter* TriggerPage,
+	APageCharacter* TriggerTarget,
+	const TArray<APageCharacter*>& Candidates) const
+{
+	TArray<APageCharacter*> SeedCombatants;
+	if (!TriggerPage || !TriggerTarget)
+	{
+		return SeedCombatants;
+	}
+
+	const bool bDungeonSpace = TriggerPage->IsInDungeon();
+	TArray<APageCharacter*> Frontier;
+	Frontier.AddUnique(TriggerPage);
+	Frontier.AddUnique(TriggerTarget);
+	SeedCombatants = Frontier;
+
+	while (Frontier.Num() > 0)
+	{
+		APageCharacter* Anchor = Frontier.Pop(EAllowShrinking::No);
+		if (!Anchor)
+		{
+			continue;
+		}
+
+		for (APageCharacter* Candidate : Candidates)
+		{
+			if (!Candidate || Candidate->IsInDungeon() != bDungeonSpace || SeedCombatants.Contains(Candidate))
+			{
+				continue;
+			}
+
+			const float DistSq = FVector::DistSquared(Anchor->GetActorLocation(), Candidate->GetActorLocation());
+			if (DistSq <= FMath::Square(CombatJoinRangeCm))
+			{
+				SeedCombatants.Add(Candidate);
+				Frontier.Add(Candidate);
+			}
+		}
+	}
+
+	return SeedCombatants;
+}
+
 bool UWS_CombatDirector::TryStartEncounter(const TArray<APageCharacter*>& Pages)
 {
 	for (APageCharacter* Page : Pages)
@@ -88,14 +133,7 @@ bool UWS_CombatDirector::TryStartEncounter(const TArray<APageCharacter*>& Pages)
 
 		if (APageCharacter* Target = FindClosestHostileTarget(Page, Pages, EncounterStartRangeCm))
 		{
-			TArray<APageCharacter*> Combatants;
-			for (APageCharacter* Candidate : Pages)
-			{
-				if (Candidate && Candidate->IsInDungeon() == Page->IsInDungeon())
-				{
-					Combatants.Add(Candidate);
-				}
-			}
+			const TArray<APageCharacter*> Combatants = GatherEncounterSeedCombatants(Page, Target, Pages);
 
 			StartEncounter(Combatants, Page->IsInDungeon());
 			UE_LOG(LogTemp, Log,
@@ -119,7 +157,7 @@ void UWS_CombatDirector::StartEncounter(const TArray<APageCharacter*>& Combatant
 	ActiveEncounter.EncounterId = NextEncounterId++;
 	ActiveEncounter.RoundIndex = 1;
 	ActiveEncounter.ActiveTurnIndex = 0;
-	ActiveEncounter.TurnTimeRemaining = FriendlyTurnDurationSeconds;
+	ActiveEncounter.TurnTimeRemaining = TurnTimeLimitSeconds;
 	ActiveEncounter.bCombatSpaceIsDungeon = bCombatSpaceIsDungeon;
 
 	bAdvanceTurnRequested = false;
@@ -134,13 +172,20 @@ void UWS_CombatDirector::StartEncounter(const TArray<APageCharacter*>& Combatant
 
 		ActiveEncounter.Combatants.Add(Combatant);
 		FCombatActionPointState& APState = CombatantActionPoints.FindOrAdd(Combatant);
-		APState.MaxActionPoints = FMath::Max(1, ActionPointsPerTurn);
+		APState.MaxActionPoints = GetActionPointsPerTurn(Combatant);
 		APState.ActionPointsRemaining = 0;
 		APState.MovementProgressCm = 0.f;
+
+		FCombatInitiativeState& InitiativeState = CombatantInitiative.FindOrAdd(Combatant);
+		InitiativeState.InitiativeValue = 0.f;
+		InitiativeState.AgilityValue = GetCombatAgility(Combatant);
+		InitiativeState.ActionThreshold = GetActionThreshold(Combatant);
+		InitiativeState.TurnsTaken = 0;
 	}
 
-	RefreshEncounterState();
-	BeginTurnForCombatant(GetActiveCombatant());
+	CombatantActionPoints.Compact();
+	CombatantInitiative.Compact();
+	AdvanceTurn();
 	FocusActiveFriendlyPage();
 }
 
@@ -152,18 +197,85 @@ void UWS_CombatDirector::RebuildCombatantsFromWorld(const TArray<APageCharacter*
 	}
 
 	TArray<TWeakObjectPtr<APageCharacter>> RebuiltCombatants;
-	for (APageCharacter* Page : Pages)
+	for (const TWeakObjectPtr<APageCharacter>& ExistingCombatant : ActiveEncounter.Combatants)
 	{
-		if (Page && Page->IsInDungeon() == ActiveEncounter.bCombatSpaceIsDungeon)
+		APageCharacter* ExistingPage = ExistingCombatant.Get();
+		if (!ExistingPage)
 		{
-			RebuiltCombatants.Add(Page);
+			continue;
+		}
+
+		if (Pages.Contains(ExistingPage))
+		{
+			RebuiltCombatants.Add(ExistingPage);
 		}
 	}
 
 	ActiveEncounter.Combatants = MoveTemp(RebuiltCombatants);
+	CombatantActionPoints.Compact();
+	CombatantInitiative.Compact();
 	if (ActiveEncounter.Combatants.Num() > 0)
 	{
 		ActiveEncounter.ActiveTurnIndex = ActiveEncounter.ActiveTurnIndex % ActiveEncounter.Combatants.Num();
+	}
+}
+
+void UWS_CombatDirector::RecruitNearbyCombatants(const TArray<APageCharacter*>& Pages)
+{
+	if (!IsCombatActive())
+	{
+		return;
+	}
+
+	for (APageCharacter* Candidate : Pages)
+	{
+		if (!Candidate || Candidate->IsInDungeon() != ActiveEncounter.bCombatSpaceIsDungeon)
+		{
+			continue;
+		}
+
+		if (ActiveEncounter.Combatants.Contains(Candidate))
+		{
+			continue;
+		}
+
+		bool bShouldJoin = false;
+		for (const TWeakObjectPtr<APageCharacter>& WeakCombatant : ActiveEncounter.Combatants)
+		{
+			if (const APageCharacter* Combatant = WeakCombatant.Get())
+			{
+				const float DistSq = FVector::DistSquared(Combatant->GetActorLocation(), Candidate->GetActorLocation());
+				if (DistSq <= FMath::Square(CombatJoinRangeCm))
+				{
+					bShouldJoin = true;
+					break;
+				}
+			}
+		}
+
+		if (!bShouldJoin)
+		{
+			continue;
+		}
+
+		ActiveEncounter.Combatants.Add(Candidate);
+
+		FCombatActionPointState& APState = CombatantActionPoints.FindOrAdd(Candidate);
+		APState.MaxActionPoints = GetActionPointsPerTurn(Candidate);
+		APState.ActionPointsRemaining = 0;
+		APState.MovementProgressCm = 0.f;
+
+		FCombatInitiativeState& InitiativeState = CombatantInitiative.FindOrAdd(Candidate);
+		InitiativeState.InitiativeValue = 0.f;
+		InitiativeState.AgilityValue = GetCombatAgility(Candidate);
+		InitiativeState.ActionThreshold = GetActionThreshold(Candidate);
+		InitiativeState.TurnsTaken = 0;
+
+		Candidate->SetTurnCombatState(true, false);
+		UE_LOG(LogTemp, Log,
+			TEXT("[Combat] %s joined encounter %d by proximity"),
+			*GetNameSafe(Candidate),
+			ActiveEncounter.EncounterId);
 	}
 }
 
@@ -228,13 +340,47 @@ void UWS_CombatDirector::BeginTurnForCombatant(APageCharacter* ActivePage)
 	}
 
 	FCombatActionPointState& APState = CombatantActionPoints.FindOrAdd(ActivePage);
-	APState.MaxActionPoints = FMath::Max(1, ActionPointsPerTurn);
+	APState.MaxActionPoints = GetActionPointsPerTurn(ActivePage);
 	APState.ActionPointsRemaining = APState.MaxActionPoints;
 	APState.MovementProgressCm = 0.f;
 
 	bAdvanceTurnRequested = false;
 	PendingFriendlyAction = FPendingCombatActionRequest{};
 	UpdateCombatantTurnFlags(ActivePage);
+	ActiveEncounter.TurnTimeRemaining = TurnTimeLimitSeconds;
+}
+
+bool UWS_CombatDirector::HasActionPointsRemaining(APageCharacter* Page) const
+{
+	if (!Page)
+	{
+		return false;
+	}
+
+	if (const FCombatActionPointState* APState = CombatantActionPoints.Find(Page))
+	{
+		return APState->ActionPointsRemaining > 0;
+	}
+
+	return false;
+}
+
+float UWS_CombatDirector::GetCombatAgility(const APageCharacter* Page) const
+{
+	const UStatsComponent* Stats = Page ? Page->GetStats() : nullptr;
+	return Stats ? Stats->GetCombatAgility() : 5.f;
+}
+
+float UWS_CombatDirector::GetActionThreshold(const APageCharacter* Page) const
+{
+	const UStatsComponent* Stats = Page ? Page->GetStats() : nullptr;
+	return Stats ? Stats->GetCombatActionThreshold() : 10.f;
+}
+
+int32 UWS_CombatDirector::GetActionPointsPerTurn(const APageCharacter* Page) const
+{
+	const UStatsComponent* Stats = Page ? Page->GetStats() : nullptr;
+	return Stats ? Stats->GetCombatActionPointsPerTurn() : 2;
 }
 
 bool UWS_CombatDirector::TrySpendActionPoints(APageCharacter* Page, int32 Cost, const TCHAR* Context)
@@ -326,10 +472,12 @@ bool UWS_CombatDirector::ExecutePendingFriendlyAction(USimCommandBuffer* Cmd, AP
 		return false;
 	}
 
-	APageCharacter* TargetPage = Request.TargetPage.Get();
+	AActor* TargetActor = Request.TargetActor.Get();
+	APageCharacter* TargetPage = Cast<APageCharacter>(TargetActor);
+	ADungeonCoreActor* TargetCore = Cast<ADungeonCoreActor>(TargetActor);
 	if (SkillDef->bRequiresTarget)
 	{
-		if (!TargetPage)
+		if (!TargetActor)
 		{
 			UE_LOG(LogTemp, Warning, TEXT("[Combat] Skill %s requires a target"), *Request.ActionId.ToString());
 			return false;
@@ -364,7 +512,7 @@ bool UWS_CombatDirector::ExecutePendingFriendlyAction(USimCommandBuffer* Cmd, AP
 	}
 
 	const TWeakObjectPtr<APageCharacter> WeakAttacker = ActivePage;
-	const TWeakObjectPtr<APageCharacter> WeakTarget = TargetPage;
+	const TWeakObjectPtr<AActor> WeakTarget = TargetActor;
 	const float Damage = SkillDef->CombatDamageAmount;
 	const FName SkillId = Request.ActionId;
 
@@ -376,17 +524,91 @@ bool UWS_CombatDirector::ExecutePendingFriendlyAction(USimCommandBuffer* Cmd, AP
 			return;
 		}
 
-		if (APageCharacter* Target = WeakTarget.Get())
+		if (AActor* TargetActorResolved = WeakTarget.Get())
 		{
+			if (APageCharacter* Target = Cast<APageCharacter>(TargetActorResolved))
+			{
+				if (UStatsComponent* TargetStats = Target->GetStats())
+				{
+					TargetStats->ApplyDamage(Damage);
+					Attacker->AddActiveSkillXP(SkillId, FMath::Max(5.f, Damage * 0.25f));
+
+					UE_LOG(LogTemp, Log,
+						TEXT("[Combat] %s used %s on %s for %.1f damage (HP %.1f/%.1f)"),
+						*GetNameSafe(Attacker),
+						*SkillId.ToString(),
+						*GetNameSafe(Target),
+						Damage,
+						TargetStats->GetHealth(),
+						TargetStats->GetMaxHealth());
+
+					if (TargetStats->IsDead())
+					{
+						UE_LOG(LogTemp, Warning, TEXT("[Combat] %s died"), *GetNameSafe(Target));
+						Target->Destroy();
+					}
+				}
+			}
+			else if (ADungeonCoreActor* TargetCoreResolved = Cast<ADungeonCoreActor>(TargetActorResolved))
+			{
+				TargetCoreResolved->ApplyCoreDamage(Damage);
+				Attacker->AddActiveSkillXP(SkillId, FMath::Max(5.f, Damage * 0.25f));
+				UE_LOG(LogTemp, Log,
+					TEXT("[Combat] %s used %s on dungeon core for %.1f damage (HP %.1f/%.1f)"),
+					*GetNameSafe(Attacker),
+					*SkillId.ToString(),
+					Damage,
+					TargetCoreResolved->GetHealth(),
+					TargetCoreResolved->GetMaxHealth());
+			}
+		}
+	});
+
+	return true;
+}
+
+bool UWS_CombatDirector::ExecuteEnemyTurnStep(USimCommandBuffer* Cmd, APageCharacter* ActivePage, const TArray<APageCharacter*>& Pages)
+{
+	if (!Cmd || !ActivePage || ActivePage->IsFriendly())
+	{
+		return false;
+	}
+
+	APageCharacter* ClosestEnemy = FindClosestHostileTarget(ActivePage, Pages, DetectionRangeCm);
+	if (!ClosestEnemy)
+	{
+		bAdvanceTurnRequested = true;
+		return false;
+	}
+
+	const float Distance = FVector::Distance(ActivePage->GetActorLocation(), ClosestEnemy->GetActorLocation());
+	if (Distance <= AttackRangeCm)
+	{
+		if (!TrySpendActionPoints(ActivePage, 1, TEXT("EnemyAttack")))
+		{
+			return false;
+		}
+
+		const TWeakObjectPtr<APageCharacter> WeakAttacker = ActivePage;
+		const TWeakObjectPtr<APageCharacter> WeakTarget = ClosestEnemy;
+		const float Damage = AttackDamagePerHit;
+
+		Cmd->Enqueue([WeakAttacker, WeakTarget, Damage]()
+		{
+			APageCharacter* Attacker = WeakAttacker.Get();
+			APageCharacter* Target = WeakTarget.Get();
+			if (!Attacker || !Target)
+			{
+				return;
+			}
+
 			if (UStatsComponent* TargetStats = Target->GetStats())
 			{
 				TargetStats->ApplyDamage(Damage);
-				Attacker->AddActiveSkillXP(SkillId, FMath::Max(5.f, Damage * 0.25f));
 
 				UE_LOG(LogTemp, Log,
-					TEXT("[Combat] %s used %s on %s for %.1f damage (HP %.1f/%.1f)"),
+					TEXT("[Combat] %s hit %s for %.1f (HP %.1f/%.1f)"),
 					*GetNameSafe(Attacker),
-					*SkillId.ToString(),
 					*GetNameSafe(Target),
 					Damage,
 					TargetStats->GetHealth(),
@@ -398,6 +620,25 @@ bool UWS_CombatDirector::ExecutePendingFriendlyAction(USimCommandBuffer* Cmd, AP
 					Target->Destroy();
 				}
 			}
+		});
+
+		return true;
+	}
+
+	if (!TrySpendActionPoints(ActivePage, 1, TEXT("EnemyMove")))
+	{
+		return false;
+	}
+
+	const FVector Direction = (ClosestEnemy->GetActorLocation() - ActivePage->GetActorLocation()).GetSafeNormal2D();
+	const FVector MoveDelta = Direction * MovementPerTurnCm;
+	const TWeakObjectPtr<APageCharacter> WeakPage = ActivePage;
+
+	Cmd->Enqueue([WeakPage, MoveDelta]()
+	{
+		if (APageCharacter* MovingPage = WeakPage.Get())
+		{
+			MovingPage->SetActorLocation(MovingPage->GetActorLocation() + MoveDelta, true);
 		}
 	});
 
@@ -411,13 +652,64 @@ void UWS_CombatDirector::AdvanceTurn()
 		return;
 	}
 
-	ActiveEncounter.ActiveTurnIndex = (ActiveEncounter.ActiveTurnIndex + 1) % ActiveEncounter.Combatants.Num();
-	if (ActiveEncounter.ActiveTurnIndex == 0)
+	APageCharacter* PreviousPage = GetActiveCombatant();
+	if (PreviousPage)
 	{
-		++ActiveEncounter.RoundIndex;
+		if (FCombatInitiativeState* InitiativeState = CombatantInitiative.Find(PreviousPage))
+		{
+			InitiativeState->InitiativeValue = 0.f;
+			InitiativeState->TurnsTaken += 1;
+		}
 	}
 
-	ActiveEncounter.TurnTimeRemaining = FriendlyTurnDurationSeconds;
+	int32 SelectedIndex = INDEX_NONE;
+	float SelectedInitiative = -1.f;
+	float SelectedAgility = -1.f;
+	int32 IterationGuard = 0;
+
+	while (SelectedIndex == INDEX_NONE && IterationGuard++ < 128)
+	{
+		for (int32 Index = 0; Index < ActiveEncounter.Combatants.Num(); ++Index)
+		{
+			APageCharacter* Combatant = ActiveEncounter.Combatants[Index].Get();
+			if (!Combatant)
+			{
+				continue;
+			}
+
+			FCombatInitiativeState& InitiativeState = CombatantInitiative.FindOrAdd(Combatant);
+			InitiativeState.AgilityValue = GetCombatAgility(Combatant);
+			InitiativeState.ActionThreshold = GetActionThreshold(Combatant);
+			InitiativeState.InitiativeValue += InitiativeState.AgilityValue;
+
+			if (InitiativeState.InitiativeValue >= InitiativeState.ActionThreshold)
+			{
+				if (SelectedIndex == INDEX_NONE
+					|| InitiativeState.InitiativeValue > SelectedInitiative
+					|| (FMath::IsNearlyEqual(InitiativeState.InitiativeValue, SelectedInitiative) && InitiativeState.AgilityValue > SelectedAgility))
+				{
+					SelectedIndex = Index;
+					SelectedInitiative = InitiativeState.InitiativeValue;
+					SelectedAgility = InitiativeState.AgilityValue;
+				}
+			}
+		}
+	}
+
+	if (SelectedIndex == INDEX_NONE)
+	{
+		EndEncounter(TEXT("NoCombatantPassedThreshold"));
+		return;
+	}
+
+	ActiveEncounter.ActiveTurnIndex = SelectedIndex;
+	int32 TotalTurnsTaken = 0;
+	for (const TPair<TWeakObjectPtr<APageCharacter>, FCombatInitiativeState>& Pair : CombatantInitiative)
+	{
+		TotalTurnsTaken += Pair.Value.TurnsTaken;
+	}
+	ActiveEncounter.RoundIndex = 1 + (ActiveEncounter.Combatants.Num() > 0 ? TotalTurnsTaken / ActiveEncounter.Combatants.Num() : 0);
+
 	RefreshEncounterState();
 	BeginTurnForCombatant(GetActiveCombatant());
 	FocusActiveFriendlyPage();
@@ -453,6 +745,7 @@ void UWS_CombatDirector::EndEncounter(const TCHAR* Reason)
 
 	ActiveEncounter = FCombatEncounterRuntime{};
 	CombatantActionPoints.Empty();
+	CombatantInitiative.Empty();
 	bAdvanceTurnRequested = false;
 	PendingFriendlyAction = FPendingCombatActionRequest{};
 }
@@ -507,6 +800,7 @@ void UWS_CombatDirector::SimPlan_Implementation(USimCommandBuffer* Cmd, float Fi
 	else
 	{
 		RebuildCombatantsFromWorld(Pages);
+		RecruitNearbyCombatants(Pages);
 		RefreshEncounterState();
 	}
 
@@ -529,6 +823,12 @@ void UWS_CombatDirector::SimPlan_Implementation(USimCommandBuffer* Cmd, float Fi
 		BeginTurnForCombatant(ActivePage);
 	}
 
+	ActiveEncounter.TurnTimeRemaining -= FixedDeltaSeconds;
+	if (ActiveEncounter.TurnTimeRemaining <= 0.f)
+	{
+		bAdvanceTurnRequested = true;
+	}
+
 	if (bAdvanceTurnRequested)
 	{
 		AdvanceTurn();
@@ -538,61 +838,10 @@ void UWS_CombatDirector::SimPlan_Implementation(USimCommandBuffer* Cmd, float Fi
 	if (ActivePage->IsFriendly())
 	{
 		ExecutePendingFriendlyAction(Cmd, ActivePage, Pages);
-		if (bAdvanceTurnRequested)
+		if (!HasActionPointsRemaining(ActivePage))
 		{
-			AdvanceTurn();
+			bAdvanceTurnRequested = true;
 		}
-		return;
-	}
-
-	APageCharacter* ClosestEnemy = FindClosestHostileTarget(ActivePage, Pages, DetectionRangeCm);
-	if (!ClosestEnemy)
-	{
-		AdvanceTurn();
-		return;
-	}
-
-	const float Distance = FVector::Distance(ActivePage->GetActorLocation(), ClosestEnemy->GetActorLocation());
-	if (Distance <= AttackRangeCm)
-	{
-		if (!TrySpendActionPoints(ActivePage, 1, TEXT("EnemyAttack")))
-		{
-			AdvanceTurn();
-			return;
-		}
-
-		const TWeakObjectPtr<APageCharacter> WeakAttacker = ActivePage;
-		const TWeakObjectPtr<APageCharacter> WeakTarget = ClosestEnemy;
-		const float Damage = AttackDamagePerHit;
-
-		Cmd->Enqueue([WeakAttacker, WeakTarget, Damage]()
-		{
-			APageCharacter* Attacker = WeakAttacker.Get();
-			APageCharacter* Target = WeakTarget.Get();
-			if (!Attacker || !Target)
-			{
-				return;
-			}
-
-			if (UStatsComponent* TargetStats = Target->GetStats())
-			{
-				TargetStats->ApplyDamage(Damage);
-
-				UE_LOG(LogTemp, Log,
-					TEXT("[Combat] %s hit %s for %.1f (HP %.1f/%.1f)"),
-					*GetNameSafe(Attacker),
-					*GetNameSafe(Target),
-					Damage,
-					TargetStats->GetHealth(),
-					TargetStats->GetMaxHealth());
-
-				if (TargetStats->IsDead())
-				{
-					UE_LOG(LogTemp, Warning, TEXT("[Combat] %s died"), *GetNameSafe(Target));
-					Target->Destroy();
-				}
-			}
-		});
 
 		if (bAdvanceTurnRequested)
 		{
@@ -601,23 +850,11 @@ void UWS_CombatDirector::SimPlan_Implementation(USimCommandBuffer* Cmd, float Fi
 		return;
 	}
 
-	if (!TrySpendActionPoints(ActivePage, 1, TEXT("EnemyMove")))
+	ExecuteEnemyTurnStep(Cmd, ActivePage, Pages);
+	if (!HasActionPointsRemaining(ActivePage))
 	{
-		AdvanceTurn();
-		return;
+		bAdvanceTurnRequested = true;
 	}
-
-	const FVector Direction = (ClosestEnemy->GetActorLocation() - ActivePage->GetActorLocation()).GetSafeNormal2D();
-	const FVector MoveDelta = Direction * MovementPerTurnCm;
-	const TWeakObjectPtr<APageCharacter> WeakPage = ActivePage;
-
-	Cmd->Enqueue([WeakPage, MoveDelta]()
-	{
-		if (APageCharacter* MovingPage = WeakPage.Get())
-		{
-			MovingPage->SetActorLocation(MovingPage->GetActorLocation() + MoveDelta, true);
-		}
-	});
 
 	if (bAdvanceTurnRequested)
 	{
@@ -705,7 +942,7 @@ bool UWS_CombatDirector::RequestEndTurn(APageCharacter* Page)
 	return true;
 }
 
-bool UWS_CombatDirector::RequestUseCombatAction(APageCharacter* RequestingPage, int32 SlotIndex, APageCharacter* OptionalTarget)
+bool UWS_CombatDirector::RequestUseCombatAction(APageCharacter* RequestingPage, int32 SlotIndex, AActor* OptionalTarget)
 {
 	if (!RequestingPage || !IsCombatActive() || !RequestingPage->IsFriendly() || !IsPageTurnActive(RequestingPage))
 	{
@@ -741,7 +978,7 @@ bool UWS_CombatDirector::RequestUseCombatAction(APageCharacter* RequestingPage, 
 
 	PendingFriendlyAction = FPendingCombatActionRequest{};
 	PendingFriendlyAction.RequestingPage = RequestingPage;
-	PendingFriendlyAction.TargetPage = OptionalTarget;
+	PendingFriendlyAction.TargetActor = OptionalTarget;
 	PendingFriendlyAction.SlotIndex = SlotIndex;
 	PendingFriendlyAction.ActionType = Slot.ActionType;
 	PendingFriendlyAction.ActionId = Slot.ActionId;
@@ -755,3 +992,6 @@ bool UWS_CombatDirector::RequestUseCombatAction(APageCharacter* RequestingPage, 
 		*GetNameSafe(OptionalTarget));
 	return true;
 }
+
+
+

@@ -1,10 +1,10 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
-#include "Panel_Build.h"
+#include "Panel_Buildings.h"
 #include "BuildEntry.generated.h"
 
 class UButton;
@@ -13,9 +13,6 @@ class UTextBlock;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnBuildEntryClicked, FName, BuildingId);
 
-/**
- * 
- */
 UCLASS()
 class AEIDOS_API UBuildEntry : public UUserWidget
 {
@@ -31,20 +28,11 @@ public:
 	FOnBuildEntryClicked OnEntryClicked;
 
 protected:
-	UPROPERTY(meta=(BindWidget))
-	TObjectPtr<UButton> Button_Root;
-
-	UPROPERTY(meta=(BindWidget))
-	TObjectPtr<UImage> Image_Icon;
-
-	UPROPERTY(meta=(BindWidget))
-	TObjectPtr<UTextBlock> Text_Name;
-
-	UPROPERTY(meta=(BindWidget))
-	TObjectPtr<UTextBlock> Text_Category;
-
-	UPROPERTY(BlueprintReadOnly)
-	FBuildPanelItem ItemData;
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UButton> Button_Root;
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UImage> Image_Icon;
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> Text_Name;
+	UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> Text_Category;
+	UPROPERTY(BlueprintReadOnly) FBuildPanelItem ItemData;
 
 protected:
 	UFUNCTION()

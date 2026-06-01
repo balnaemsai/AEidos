@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "Framework/EidosPlayerController.h"
@@ -19,6 +19,7 @@
 
 #include "World/Settlement/WS_Building.h"
 #include "World/Settlement/Building/ConstructionSiteActor.h"
+#include "World/Dungeon/DungeonCoreActor.h"
 #include "World/Settlement/Portal/PortalActor.h"
 #include "World/Settlement/TerritoryChunkActor.h"
 #include "World/Settlement/WS_Population.h"
@@ -93,7 +94,7 @@ void AEidosPlayerController::BeginPlay()
 
 		if (Comps.Num() > 0)
 		{
-			// Tick 켜져있는 놈을 우선 선택, 없으면 첫 번째
+			// Tick 耳쒖졇?덈뒗 ?덉쓣 ?곗꽑 ?좏깮, ?놁쑝硫?泥?踰덉㎏
 			UCameraModeComponent* Pick = nullptr;
 			for (UCameraModeComponent* C : Comps)
 			{
@@ -108,7 +109,7 @@ void AEidosPlayerController::BeginPlay()
 				Pick = Comps[0];
 			}
 
-			// ✅ PC가 쓰는 포인터를 "실제로 존재하는 컴포넌트"로 강제 교정
+			// ??PC媛 ?곕뒗 ?ъ씤?곕? "?ㅼ젣濡?議댁옱?섎뒗 而댄룷?뚰듃"濡?媛뺤젣 援먯젙
 			CameraMode = Pick;
 			
 			for (UCameraModeComponent* C : Comps)
@@ -514,8 +515,8 @@ void AEidosPlayerController::TriggerCombatActionSlot(int32 SlotIndex)
 		return;
 	}
 
-	APageCharacter* TargetPage = FindFocusedHostileCombatTarget();
-	CombatDirector->RequestUseCombatAction(SelectedPage, SlotIndex, TargetPage);
+	AActor* TargetActor = FindFocusedCombatActionTarget();
+	CombatDirector->RequestUseCombatAction(SelectedPage, SlotIndex, TargetActor);
 }
 
 void AEidosPlayerController::BeginBuildPlacement(FName BuildingId)
@@ -664,7 +665,7 @@ void AEidosPlayerController::UpdateBuildPreview()
 		PlaceLoc = Hit.Location;
 	}
 
-	PlaceLoc.Z = ControlledPawn->GetActorLocation().Z; //지금은 액터 높이로 하는데, 나중에는 바닥에 딱 붙여야할듯?
+	PlaceLoc.Z = ControlledPawn->GetActorLocation().Z; //吏湲덉? ?≫꽣 ?믪씠濡??섎뒗?? ?섏쨷?먮뒗 諛붾떏????遺숈뿬?쇳븷??
 
 	FRotator PlaceRot = FRotator::ZeroRotator;
 
@@ -942,6 +943,10 @@ AActor* AEidosPlayerController::FindFocusedInteractActor() const
 		{
 			InteractionPriority = 1000.f;
 		}
+		else if (Candidate->IsA<ADungeonCoreActor>())
+		{
+			InteractionPriority = 950.f;
+		}
 		else
 		{
 			continue;
@@ -959,7 +964,7 @@ AActor* AEidosPlayerController::FindFocusedInteractActor() const
 	return BestActor;
 }
 
-APageCharacter* AEidosPlayerController::FindFocusedHostileCombatTarget() const
+AActor* AEidosPlayerController::FindFocusedCombatActionTarget() const
 {
 	APageCharacter* SelectedPage = GetSelectedPage();
 	UWorld* World = GetWorld();
@@ -972,23 +977,39 @@ APageCharacter* AEidosPlayerController::FindFocusedHostileCombatTarget() const
 	const FVector ViewForward = PlayerCameraManager->GetActorForwardVector().GetSafeNormal();
 	const float MaxDistSq = FMath::Square(InteractMaxDistance);
 
-	APageCharacter* BestTarget = nullptr;
+	AActor* BestTarget = nullptr;
 	float BestScore = -FLT_MAX;
 
-	for (TActorIterator<APageCharacter> It(World); It; ++It)
+	for (TActorIterator<AActor> It(World); It; ++It)
 	{
-		APageCharacter* Candidate = *It;
-		if (!Candidate || Candidate == SelectedPage || !SelectedPage->IsHostileTo(Candidate))
+		AActor* CandidateActor = *It;
+		if (!IsValid(CandidateActor) || CandidateActor == SelectedPage)
 		{
 			continue;
 		}
 
-		if (SelectedPage->IsInDungeon() != Candidate->IsInDungeon())
+		APageCharacter* CandidatePage = Cast<APageCharacter>(CandidateActor);
+		ADungeonCoreActor* CandidateCore = Cast<ADungeonCoreActor>(CandidateActor);
+		if (CandidatePage)
+		{
+			if (!SelectedPage->IsHostileTo(CandidatePage) || SelectedPage->IsInDungeon() != CandidatePage->IsInDungeon())
+			{
+				continue;
+			}
+		}
+		else if (CandidateCore)
+		{
+			if (!SelectedPage->IsInDungeon())
+			{
+				continue;
+			}
+		}
+		else
 		{
 			continue;
 		}
 
-		const FVector ToTarget = Candidate->GetActorLocation() - ViewOrigin;
+		const FVector ToTarget = CandidateActor->GetActorLocation() - ViewOrigin;
 		const float DistSq = ToTarget.SizeSquared();
 		if (DistSq > MaxDistSq || DistSq <= KINDA_SMALL_NUMBER)
 		{
@@ -1007,7 +1028,7 @@ APageCharacter* AEidosPlayerController::FindFocusedHostileCombatTarget() const
 		if (Score > BestScore)
 		{
 			BestScore = Score;
-			BestTarget = Candidate;
+			BestTarget = CandidateActor;
 		}
 	}
 
@@ -1024,6 +1045,12 @@ bool AEidosPlayerController::TryInteractWithActor(AActor* TargetActor)
 	if (APortalActor* Portal = Cast<APortalActor>(TargetActor))
 	{
 		Portal->Interact(this);
+		return true;
+	}
+
+	if (ADungeonCoreActor* DungeonCore = Cast<ADungeonCoreActor>(TargetActor))
+	{
+		DungeonCore->Interact(this);
 		return true;
 	}
 
@@ -1085,6 +1112,14 @@ void AEidosPlayerController::SelectAdjacentPage(int32 Direction)
 		*GetNameSafe(NewSelectedPage),
 		NewSelectedPage->GetPageEntityId());
 }
+
+
+
+
+
+
+
+
 
 
 

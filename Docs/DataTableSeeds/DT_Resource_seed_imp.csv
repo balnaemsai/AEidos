@@ -1,0 +1,6 @@
+﻿Name,DisplayName,DefaultStartingAmount,bSavable,SortOrder
+EP,Eidos Point,300,TRUE,0
+Food,Food,50,TRUE,10
+Wood,Wood,80,TRUE,20
+Stone,Stone,60,TRUE,30
+Shard,Portal Shard,0,TRUE,40

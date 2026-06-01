@@ -47,6 +47,27 @@ struct FEidosEconomySnapshot
 };
 
 USTRUCT(BlueprintType)
+struct FEidosSustenanceSnapshot
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadWrite)
+	float StoredMealUnits = 0.f;
+
+	UPROPERTY(BlueprintReadWrite)
+	float StoredMealQualityTotal = 0.f;
+
+	UPROPERTY(BlueprintReadWrite)
+	float LastServedAverageMealQuality = 0.f;
+
+	UPROPERTY(BlueprintReadWrite)
+	float CurrentDailyMealDemandUnits = 0.f;
+
+	UPROPERTY(BlueprintReadWrite)
+	int32 LastKnownPopulation = 0;
+};
+
+USTRUCT(BlueprintType)
 struct FEidosPageSnapshot
 {
 	GENERATED_BODY()
@@ -141,6 +162,9 @@ public:
 
 	UPROPERTY(BlueprintReadWrite)
 	FEidosEconomySnapshot Economy;
+
+	UPROPERTY(BlueprintReadWrite)
+	FEidosSustenanceSnapshot Sustenance;
 
 	UPROPERTY(BlueprintReadWrite)
 	FEidosPopulationSnapshot Population;

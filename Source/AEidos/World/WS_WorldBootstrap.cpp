@@ -20,6 +20,7 @@
 #include "Settlement/WS_Population.h"
 #include "World/Settlement/WS_Work.h"
 #include "World/Settlement/WS_Economy.h"
+#include "World/Settlement/WS_Sustenance.h"
 #include "World/Settlement/WS_Building.h"
 #include "World/Settlement/WS_Population.h"
 
@@ -192,6 +193,7 @@ void UWS_WorldBootstrap::ContinueBootstrapAfterDataRegistryReady(bool bOk)
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_SettlementSpace>());
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Work>());
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Economy>());
+	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Sustenance>());
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Population>());
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Building>());
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_PortalDirector>());

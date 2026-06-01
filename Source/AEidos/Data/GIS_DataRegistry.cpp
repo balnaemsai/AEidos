@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "Data/GIS_DataRegistry.h"
@@ -85,7 +85,7 @@ bool UGIS_DataRegistry::EnsureReadySync()
 		return false;
 	}
 
-	// Required 목록 동기 로드
+	// Required 紐⑸줉 ?숆린 濡쒕뱶
 	for (const auto& TRef : LoadedConfig->RequiredDataTables)
 	{
 		if (TRef.IsNull()) continue;
@@ -175,8 +175,8 @@ void UGIS_DataRegistry::BeginLoad_RequiredAssets()
 	{
 		NotReadyReason = TEXT("RegistryConfig has no assets to load.");
 		UE_LOG(LogDataRegistry, Warning, TEXT("%s"), *NotReadyReason);
-		// 데이터가 없는데도 Ready로 둘지 정책 선택:
-		// 지금은 "비어 있으면 실패"가 디버깅에 유리.
+		// ?곗씠?곌? ?녿뒗?곕룄 Ready濡??섏? ?뺤콉 ?좏깮:
+		// 吏湲덉? "鍮꾩뼱 ?덉쑝硫??ㅽ뙣"媛 ?붾쾭源낆뿉 ?좊━.
 		BroadcastReady(false);
 		return;
 	}
@@ -275,7 +275,7 @@ UDataTable* UGIS_DataRegistry::FindDataTableByName(const FName TableName) const
 
 UDataTable* UGIS_DataRegistry::GetSkillTable() const
 {
-	// DT asset 이름이 DT_Skill 이라는 전제
+	// DT asset ?대쫫??DT_Skill ?대씪???꾩젣
 	return FindDataTableByName(TEXT("DT_Skill"));
 }
 
@@ -302,7 +302,7 @@ const FSkillDefinitionRow* UGIS_DataRegistry::GetSkillDef(FName SkillId) const
 
 UDataTable* UGIS_DataRegistry::GetWorkTable() const
 {
-	// DT asset 이름이 DT_Skill 이라는 전제
+	// DT asset ?대쫫??DT_Skill ?대씪???꾩젣
 	return FindDataTableByName(TEXT("DT_Work"));
 }
 
@@ -368,7 +368,12 @@ TArray<FName> UGIS_DataRegistry::GetAllResourceIds() const
 
 UDataTable* UGIS_DataRegistry::GetPortalTable() const
 {
-	return FindDataTableByName(TEXT("DT_Portal"));
+	if (UDataTable* Table = FindDataTableByName(TEXT("DT_Portal")))
+	{
+		return Table;
+	}
+
+	return FindDataTableByName(TEXT("DT_Portalfix"));
 }
 
 const FPortalDefinitionRow* UGIS_DataRegistry::GetPortalDef(FName PortalDefId) const
@@ -382,6 +387,21 @@ const FPortalDefinitionRow* UGIS_DataRegistry::GetPortalDef(FName PortalDefId) c
 
 	return Table->FindRow<FPortalDefinitionRow>(PortalDefId, TEXT("GetPortalDef"));
 }
+
+TArray<FName> UGIS_DataRegistry::GetAllPortalDefIds() const
+{
+	TArray<FName> Result;
+
+	UDataTable* Table = GetPortalTable();
+	if (!Table)
+	{
+		return Result;
+	}
+
+	Result = Table->GetRowNames();
+	return Result;
+}
+
 
 
 

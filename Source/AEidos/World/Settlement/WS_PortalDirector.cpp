@@ -18,6 +18,7 @@ namespace PortalDirectorKV
 {
 	static const TCHAR* NextPortalId = TEXT("PortalDirector.NextPortalId");
 	static const TCHAR* TimeSinceLastSpawn = TEXT("PortalDirector.TimeSinceLastSpawn");
+	static const TCHAR* SpawnTimers = TEXT("PortalDirector.SpawnTimers");
 	static const TCHAR* ActivePortals = TEXT("PortalDirector.ActivePortals");
 }
 
@@ -46,6 +47,11 @@ FName UWS_PortalDirector::Key_TimeSinceLastSpawn()
 	return FName(PortalDirectorKV::TimeSinceLastSpawn);
 }
 
+FName UWS_PortalDirector::Key_SpawnTimers()
+{
+	return FName(PortalDirectorKV::SpawnTimers);
+}
+
 FName UWS_PortalDirector::Key_ActivePortals()
 {
 	return FName(PortalDirectorKV::ActivePortals);
@@ -62,6 +68,7 @@ void UWS_PortalDirector::Initialize(FSubsystemCollectionBase& Collection)
 
 	NextPortalId = 1;
 	TimeSinceLastSpawn = 0.f;
+	TimeSinceLastSpawnByDef.Reset();
 	bDirty = false;
 }
 
@@ -90,6 +97,71 @@ const FPortalDefinitionRow* UWS_PortalDirector::GetDefaultPortalDef() const
 	}
 
 	return Registry->GetPortalDef(TEXT("DefaultPortal"));
+}
+
+const FPortalDefinitionRow* UWS_PortalDirector::GetPortalDef(FName PortalDefId) const
+{
+	UGIS_DataRegistry* Registry = GetRegistry();
+	if (!Registry || PortalDefId.IsNone())
+	{
+		return nullptr;
+	}
+
+	return Registry->GetPortalDef(PortalDefId);
+}
+
+TArray<FName> UWS_PortalDirector::GetAutoSpawnPortalDefIds() const
+{
+	TArray<FName> Result;
+
+	UGIS_DataRegistry* Registry = GetRegistry();
+	if (!Registry)
+	{
+		return Result;
+	}
+
+	Result = Registry->GetAllPortalDefIds();
+	Result.RemoveAll([Registry](const FName PortalDefId)
+	{
+		const FPortalDefinitionRow* Def = Registry->GetPortalDef(PortalDefId);
+		return !Def || !Def->bEnableAutoSpawn;
+	});
+
+	Result.Sort([](const FName& A, const FName& B)
+	{
+		if (A == TEXT("TestDungeon"))
+		{
+			return true;
+		}
+		if (B == TEXT("TestDungeon"))
+		{
+			return false;
+		}
+		if (A == TEXT("DefaultPortal"))
+		{
+			return true;
+		}
+		if (B == TEXT("DefaultPortal"))
+		{
+			return false;
+		}
+		return A.LexicalLess(B);
+	});
+
+	return Result;
+}
+
+int32 UWS_PortalDirector::GetActivePortalCountForDef(FName PortalDefId) const
+{
+	int32 Count = 0;
+	for (const TPair<int32, FPortalState>& Pair : ActivePortals)
+	{
+		if (Pair.Value.PortalDefId == PortalDefId && !IsTerminalPortalStatus(Pair.Value.Status))
+		{
+			++Count;
+		}
+	}
+	return Count;
 }
 
 void UWS_PortalDirector::SimPlan_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds)
@@ -140,22 +212,41 @@ void UWS_PortalDirector::SimPost_Implementation(float FixedDeltaSeconds)
 
 void UWS_PortalDirector::CheckSpawn(float FixedDeltaSeconds)
 {
-	const FPortalDefinitionRow* Def = GetDefaultPortalDef();
-	if (!Def)
+	const TArray<FName> PortalDefIds = GetAutoSpawnPortalDefIds();
+	for (const FName PortalDefId : PortalDefIds)
 	{
-		return;
+		const FPortalDefinitionRow* Def = GetPortalDef(PortalDefId);
+		if (!Def)
+		{
+			continue;
+		}
+
+		float& SpawnTimer = TimeSinceLastSpawnByDef.FindOrAdd(PortalDefId);
+		if (PortalDefId == TEXT("DefaultPortal") && SpawnTimer <= 0.f && TimeSinceLastSpawn > 0.f)
+		{
+			SpawnTimer = TimeSinceLastSpawn;
+		}
+
+		SpawnTimer += FixedDeltaSeconds;
+		if (SpawnTimer < Def->SpawnIntervalSeconds)
+		{
+			continue;
+		}
+
+		if (Def->MaxActiveCount > 0 && GetActivePortalCountForDef(PortalDefId) >= Def->MaxActiveCount)
+		{
+			continue;
+		}
+
+		SpawnTimer = 0.f;
+		if (PortalDefId == TEXT("DefaultPortal"))
+		{
+			TimeSinceLastSpawn = 0.f;
+		}
+
+		const FPortalState NewState = MakePortalState(*Def);
+		PlannedSpawnPortals.Add(NewState);
 	}
-
-	TimeSinceLastSpawn += FixedDeltaSeconds;
-	if (TimeSinceLastSpawn < Def->SpawnIntervalSeconds)
-	{
-		return;
-	}
-
-	TimeSinceLastSpawn = 0.f;
-
-	const FPortalState NewState = MakePortalState(*Def);
-	PlannedSpawnPortals.Add(NewState);
 }
 
 void UWS_PortalDirector::UpdatePortalTimer(float FixedDeltaSeconds)
@@ -209,6 +300,7 @@ FPortalState UWS_PortalDirector::MakePortalState(const FPortalDefinitionRow& Def
 {
 	FPortalState State;
 	State.PortalId = NextPortalId++;
+	State.PortalDefId = Def.PortalId.IsNone() ? TEXT("DefaultPortal") : Def.PortalId;
 	State.Location = ChoosePortalSpawnLocation(Def);
 	State.Tier = Def.Tier;
 	State.SpawnTime = 0.f;
@@ -292,10 +384,11 @@ void UWS_PortalDirector::NormalizePortalState(FPortalState& Portal) const
 
 void UWS_PortalDirector::SpawnPortalActorForState(const FPortalState& State)
 {
-	const FPortalDefinitionRow* Def = GetDefaultPortalDef();
+	const FName PortalDefId = State.PortalDefId.IsNone() ? FName(TEXT("DefaultPortal")) : State.PortalDefId;
+	const FPortalDefinitionRow* Def = GetPortalDef(PortalDefId);
 	if (!Def)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Portal] No DefaultPortal def"));
+		UE_LOG(LogTemp, Warning, TEXT("[Portal] Missing portal def for PortalId=%d DefId=%s"), State.PortalId, *PortalDefId.ToString());
 		return;
 	}
 
@@ -497,8 +590,9 @@ FString UWS_PortalDirector::EncodePortalStates(const TMap<int32, FPortalState>& 
 		const FPortalState& S = Pair.Value;
 
 		Items.Add(FString::Printf(
-			TEXT("%d,%.3f,%.3f,%.3f,%d,%.3f,%.3f,%d,%d,%d,%d"),
+			TEXT("%d,%s,%.3f,%.3f,%.3f,%d,%.3f,%.3f,%d,%d,%d,%d"),
 			S.PortalId,
+			*S.PortalDefId.ToString(),
 			S.Location.X,
 			S.Location.Y,
 			S.Location.Z,
@@ -531,23 +625,34 @@ void UWS_PortalDirector::DecodePortalStates(const FString& Encoded, TArray<FPort
 		TArray<FString> Fields;
 		Entry.ParseIntoArray(Fields, TEXT(","), false);
 
-		if (Fields.Num() < 11)
+		const bool bHasPortalDefId = Fields.Num() >= 12;
+		if ((!bHasPortalDefId && Fields.Num() < 11) || (bHasPortalDefId && Fields.Num() < 12))
 		{
 			continue;
 		}
 
 		FPortalState S;
 		S.PortalId = FCString::Atoi(*Fields[0]);
-		S.Location.X = FCString::Atof(*Fields[1]);
-		S.Location.Y = FCString::Atof(*Fields[2]);
-		S.Location.Z = FCString::Atof(*Fields[3]);
-		S.Tier = FCString::Atoi(*Fields[4]);
-		S.SpawnTime = FCString::Atof(*Fields[5]);
-		S.RaidTimer = FCString::Atof(*Fields[6]);
-		S.DungeonSeed = FCString::Atoi(*Fields[7]);
-		S.Status = static_cast<EPortalStatus>(FCString::Atoi(*Fields[8]));
-		S.bDungeonEntered = FCString::Atoi(*Fields[9]) != 0;
-		S.bCleared = FCString::Atoi(*Fields[10]) != 0;
+		int32 FieldOffset = 0;
+		if (bHasPortalDefId)
+		{
+			S.PortalDefId = FName(*Fields[1]);
+			FieldOffset = 1;
+		}
+		else
+		{
+			S.PortalDefId = TEXT("DefaultPortal");
+		}
+		S.Location.X = FCString::Atof(*Fields[1 + FieldOffset]);
+		S.Location.Y = FCString::Atof(*Fields[2 + FieldOffset]);
+		S.Location.Z = FCString::Atof(*Fields[3 + FieldOffset]);
+		S.Tier = FCString::Atoi(*Fields[4 + FieldOffset]);
+		S.SpawnTime = FCString::Atof(*Fields[5 + FieldOffset]);
+		S.RaidTimer = FCString::Atof(*Fields[6 + FieldOffset]);
+		S.DungeonSeed = FCString::Atoi(*Fields[7 + FieldOffset]);
+		S.Status = static_cast<EPortalStatus>(FCString::Atoi(*Fields[8 + FieldOffset]));
+		S.bDungeonEntered = FCString::Atoi(*Fields[9 + FieldOffset]) != 0;
+		S.bCleared = FCString::Atoi(*Fields[10 + FieldOffset]) != 0;
 
 		switch (S.Status)
 		{
@@ -580,10 +685,49 @@ void UWS_PortalDirector::DecodePortalStates(const FString& Encoded, TArray<FPort
 	}
 }
 
+FString UWS_PortalDirector::EncodeSpawnTimers(const TMap<FName, float>& InTimers)
+{
+	TArray<FString> Items;
+	Items.Reserve(InTimers.Num());
+
+	for (const TPair<FName, float>& Pair : InTimers)
+	{
+		Items.Add(FString::Printf(TEXT("%s=%.3f"), *Pair.Key.ToString(), Pair.Value));
+	}
+
+	return FString::Join(Items, TEXT(";"));
+}
+
+void UWS_PortalDirector::DecodeSpawnTimers(const FString& Encoded, TMap<FName, float>& OutTimers)
+{
+	OutTimers.Reset();
+
+	if (Encoded.IsEmpty())
+	{
+		return;
+	}
+
+	TArray<FString> Entries;
+	Encoded.ParseIntoArray(Entries, TEXT(";"), true);
+
+	for (const FString& Entry : Entries)
+	{
+		FString KeyString;
+		FString ValueString;
+		if (!Entry.Split(TEXT("="), &KeyString, &ValueString))
+		{
+			continue;
+		}
+
+		OutTimers.Add(FName(*KeyString), FCString::Atof(*ValueString));
+	}
+}
+
 void UWS_PortalDirector::WriteToSnapshot_Implementation(FEidosWorldSnapshot& OutSnapshot) const
 {
 	OutSnapshot.SetKVString(Key_NextPortalId(), FString::FromInt(NextPortalId));
 	OutSnapshot.SetKVString(Key_TimeSinceLastSpawn(), FString::SanitizeFloat(TimeSinceLastSpawn));
+	OutSnapshot.SetKVString(Key_SpawnTimers(), EncodeSpawnTimers(TimeSinceLastSpawnByDef));
 	OutSnapshot.SetKVString(Key_ActivePortals(), EncodePortalStates(ActivePortals));
 }
 
@@ -591,9 +735,15 @@ void UWS_PortalDirector::ApplySnapshot_Implementation(const FEidosWorldSnapshot&
 {
 	ActivePortals.Reset();
 	PortalActors.Reset();
+	TimeSinceLastSpawnByDef.Reset();
 
 	NextPortalId = FCString::Atoi(*Snapshot.GetKVString(Key_NextPortalId(), TEXT("1")));
 	TimeSinceLastSpawn = FCString::Atof(*Snapshot.GetKVString(Key_TimeSinceLastSpawn(), TEXT("0")));
+	DecodeSpawnTimers(Snapshot.GetKVString(Key_SpawnTimers(), TEXT("")), TimeSinceLastSpawnByDef);
+	if (TimeSinceLastSpawn > 0.f)
+	{
+		TimeSinceLastSpawnByDef.FindOrAdd(TEXT("DefaultPortal")) = TimeSinceLastSpawn;
+	}
 
 	const FString Encoded = Snapshot.GetKVString(Key_ActivePortals(), TEXT(""));
 	TArray<FPortalState> DecodedStates;
