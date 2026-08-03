@@ -1,0 +1,144 @@
+#include "Entities/Items/InventoryComponent.h"
+
+#include "Data/Definitions/ItemDefinitionRow.h"
+#include "Data/GIS_DataRegistry.h"
+#include "Engine/GameInstance.h"
+
+UInventoryComponent::UInventoryComponent()
+{
+	PrimaryComponentTick.bCanEverTick = false;
+}
+
+const FItemDefinitionRow* UInventoryComponent::FindDefinition(FName ItemId) const
+{
+	const UWorld* World = GetWorld();
+	UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	UGIS_DataRegistry* Registry = GameInstance ? GameInstance->GetSubsystem<UGIS_DataRegistry>() : nullptr;
+	return Registry && Registry->EnsureReadySync() ? Registry->GetItemDef(ItemId) : nullptr;
+}
+
+float UInventoryComponent::GetCurrentWeight() const
+{
+	float Result = 0.f;
+	for (const FItemStack& Stack : Stacks)
+	{
+		if (const FItemDefinitionRow* Def = FindDefinition(Stack.ItemId))
+		{
+			Result += Def->UnitWeight * Stack.Quantity;
+		}
+	}
+	return Result;
+}
+
+float UInventoryComponent::GetCurrentVolume() const
+{
+	float Result = 0.f;
+	for (const FItemStack& Stack : Stacks)
+	{
+		if (const FItemDefinitionRow* Def = FindDefinition(Stack.ItemId))
+		{
+			Result += Def->UnitVolume * Stack.Quantity;
+		}
+	}
+	return Result;
+}
+
+void UInventoryComponent::SetCapacity(float InMaxWeight, float InMaxVolume)
+{
+	MaxWeight = FMath::Max(0.f, InMaxWeight);
+	MaxVolume = FMath::Max(0.f, InMaxVolume);
+	BroadcastChanged();
+}
+
+int32 UInventoryComponent::TryAddItem(FName ItemId, int32 RequestedQuantity, float TotalQuality)
+{
+	const FItemDefinitionRow* Def = FindDefinition(ItemId);
+	if (!Def || RequestedQuantity <= 0)
+	{
+		return 0;
+	}
+
+	const float FreeWeight = FMath::Max(0.f, MaxWeight - GetCurrentWeight());
+	const float FreeVolume = FMath::Max(0.f, MaxVolume - GetCurrentVolume());
+	const int32 ByWeight = Def->UnitWeight > 0.f ? FMath::FloorToInt(FreeWeight / Def->UnitWeight) : RequestedQuantity;
+	const int32 ByVolume = Def->UnitVolume > 0.f ? FMath::FloorToInt(FreeVolume / Def->UnitVolume) : RequestedQuantity;
+	int32 Remaining = FMath::Min3(RequestedQuantity, ByWeight, ByVolume);
+	int32 Added = 0;
+
+	for (FItemStack& Stack : Stacks)
+	{
+		if (Remaining <= 0 || Stack.ItemId != ItemId || Stack.Quantity >= Def->StackLimit)
+		{
+			continue;
+		}
+
+		const int32 ToAdd = FMath::Min(Remaining, Def->StackLimit - Stack.Quantity);
+		Stack.TotalQuality += RequestedQuantity > 0 ? TotalQuality * (static_cast<float>(ToAdd) / RequestedQuantity) : 0.f;
+		Stack.Quantity += ToAdd;
+		Remaining -= ToAdd;
+		Added += ToAdd;
+	}
+
+	while (Remaining > 0)
+	{
+		const int32 ToAdd = FMath::Min(Remaining, Def->StackLimit);
+		FItemStack NewStack;
+		NewStack.ItemId = ItemId;
+		NewStack.Quantity = ToAdd;
+		NewStack.TotalQuality = RequestedQuantity > 0 ? TotalQuality * (static_cast<float>(ToAdd) / RequestedQuantity) : 0.f;
+		Stacks.Add(NewStack);
+		Remaining -= ToAdd;
+		Added += ToAdd;
+	}
+
+	if (Added > 0)
+	{
+		BroadcastChanged();
+	}
+	return Added;
+}
+
+int32 UInventoryComponent::TryRemoveItem(FName ItemId, int32 RequestedQuantity, float& OutRemovedQuality)
+{
+	OutRemovedQuality = 0.f;
+	int32 Remaining = FMath::Max(0, RequestedQuantity);
+	int32 Removed = 0;
+	for (int32 Index = Stacks.Num() - 1; Index >= 0 && Remaining > 0; --Index)
+	{
+		FItemStack& Stack = Stacks[Index];
+		if (Stack.ItemId != ItemId)
+		{
+			continue;
+		}
+
+		const int32 ToRemove = FMath::Min(Remaining, Stack.Quantity);
+		const float QualityToRemove = Stack.Quantity > 0 ? Stack.TotalQuality * (static_cast<float>(ToRemove) / Stack.Quantity) : 0.f;
+		Stack.Quantity -= ToRemove;
+		Stack.TotalQuality -= QualityToRemove;
+		OutRemovedQuality += QualityToRemove;
+		Remaining -= ToRemove;
+		Removed += ToRemove;
+		if (Stack.Quantity <= 0)
+		{
+			Stacks.RemoveAt(Index);
+		}
+	}
+
+	if (Removed > 0)
+	{
+		BroadcastChanged();
+	}
+	return Removed;
+}
+
+void UInventoryComponent::SetStacks(const TArray<FItemStack>& InStacks)
+{
+	Stacks = InStacks;
+	Stacks.RemoveAll([](const FItemStack& Stack) { return !Stack.IsValid(); });
+	BroadcastChanged();
+}
+
+void UInventoryComponent::BroadcastChanged()
+{
+	OnInventoryChanged.Broadcast();
+}

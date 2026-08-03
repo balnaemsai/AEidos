@@ -24,4 +24,12 @@ struct FResourceDefinitionRow : public FTableRowBase
 	/** 필요하면 아이콘, 색상, 정렬 우선순위 등도 나중에 추가 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	int32 SortOrder = 0;
+
+	// Every resource row is a valid warehouse resource. New resources only need
+	// a DataTable row; no code-side enum or whitelist is required.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="0.0"))
+	float UnitWeight = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="0.0"))
+	float UnitVolume = 1.f;
 };

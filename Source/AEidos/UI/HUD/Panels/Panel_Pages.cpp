@@ -9,7 +9,19 @@
 #include "Data/GIS_DataRegistry.h"
 #include "Data/Definitions/SkillDefinitionRow.h"
 #include "UI/HUD/Panels/PageEntry.h"
+#include "UI/HUD/Panels/PageQuickbarSlot.h"
+#include "UI/HUD/EidosHUD.h"
+#include "UI/HUD/HUDRootWidget.h"
+#include "Components/Button.h"
+#include "Components/ProgressBar.h"
+#include "Components/TextBlock.h"
+#include "Components/UniformGridPanel.h"
+#include "Components/UniformGridSlot.h"
+#include "Components/VerticalBox.h"
 #include "Components/WrapBox.h"
+#include "Components/WrapBoxSlot.h"
+#include "Engine/World.h"
+#include "TimerManager.h"
 
 namespace
 {
@@ -152,7 +164,40 @@ namespace
 void UPanel_Pages::NativeConstruct()
 {
 	Super::NativeConstruct();
+
+	// Nested UMG instances can retain an older empty class override. Recover the
+	// project's default slot presentation so the panel never falls back to raw text.
+	if (!QuickbarSlotClass)
+	{
+		QuickbarSlotClass = LoadClass<UPageQuickbarSlot>(
+			nullptr,
+			TEXT("/Game/Blueprints/WBP/WBP_PageQuickBarSlot.WBP_PageQuickBarSlot_C"));
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[Pages] NativeConstruct Class=%s QuickbarSlotClass=%s"),
+		*GetClass()->GetPathName(),
+		*GetNameSafe(QuickbarSlotClass));
+
+	BindWorldActorDestroyed();
+
+	if (Button_Details)
+	{
+		Button_Details->OnClicked.AddDynamic(this, &UPanel_Pages::HandleDetailsClicked);
+	}
+
+	if (Button_EditSkills)
+	{
+		Button_EditSkills->OnClicked.AddDynamic(this, &UPanel_Pages::HandleEditSkillsClicked);
+	}
+
 	RefreshFromWorld();
+}
+
+void UPanel_Pages::NativeDestruct()
+{
+	UnbindWorldActorDestroyed();
+	UnbindObservedStats();
+	Super::NativeDestruct();
 }
 
 void UPanel_Pages::OnPanelShown_Implementation()
@@ -162,6 +207,7 @@ void UPanel_Pages::OnPanelShown_Implementation()
 
 void UPanel_Pages::OnPanelHidden_Implementation()
 {
+	UnbindObservedStats();
 }
 
 void UPanel_Pages::RefreshFromWorld()
@@ -191,6 +237,8 @@ void UPanel_Pages::RefreshFromWorld()
 	{
 		AutoPopulateQuickBarIfNeeded(SelectedPage, Registry);
 	}
+
+	RebindSelectedPageStats(SelectedPage);
 
 	for (const TWeakObjectPtr<APageCharacter>& WeakPage : Population->GetOwnedPages())
 	{
@@ -258,6 +306,7 @@ void UPanel_Pages::RefreshFromWorld()
 	}
 
 	RebuildPageEntryWidgets();
+	RefreshDetailWidgets();
 }
 
 bool UPanel_Pages::RequestSelectPage(int32 PageId)
@@ -284,6 +333,19 @@ bool UPanel_Pages::AssignSelectedPageQuickSlot(int32 SlotIndex, const FPageComba
 		return false;
 	}
 
+	if (!SlotData.ActionId.IsNone())
+	{
+		const TArray<FPageCombatActionSlot>& ExistingSlots = SelectedPage->GetCombatActionSlots();
+		for (int32 ExistingIndex = 0; ExistingIndex < ExistingSlots.Num(); ++ExistingIndex)
+		{
+			const FPageCombatActionSlot& Existing = ExistingSlots[ExistingIndex];
+			if (ExistingIndex != SlotIndex && Existing.ActionType == SlotData.ActionType && Existing.ActionId == SlotData.ActionId)
+			{
+				SelectedPage->SetCombatActionSlot(ExistingIndex, FPageCombatActionSlot{});
+			}
+		}
+	}
+
 	SelectedPage->SetCombatActionSlot(SlotIndex, SlotData);
 	RefreshFromWorld();
 	return true;
@@ -305,12 +367,12 @@ bool UPanel_Pages::ClearSelectedPageQuickSlot(int32 SlotIndex)
 
 void UPanel_Pages::RebuildPageEntryWidgets()
 {
-	if (!WrapBox_PageEntries)
+	if (!VerticalBox_PageEntries)
 	{
 		return;
 	}
 
-	WrapBox_PageEntries->ClearChildren();
+	VerticalBox_PageEntries->ClearChildren();
 	if (!PageEntryClass)
 	{
 		return;
@@ -326,11 +388,311 @@ void UPanel_Pages::RebuildPageEntryWidgets()
 
 		Entry->Setup(PageView);
 		Entry->OnEntryClicked.AddDynamic(this, &UPanel_Pages::HandlePageEntryClicked);
-		WrapBox_PageEntries->AddChild(Entry);
+		VerticalBox_PageEntries->AddChild(Entry);
+	}
+}
+
+void UPanel_Pages::RefreshDetailWidgets()
+{
+	const bool bHasSelectedPage = SelectedPageSummary.PageId != INDEX_NONE;
+
+	if (Text_SelectedPageName)
+	{
+		Text_SelectedPageName->SetText(bHasSelectedPage ? SelectedPageSummary.DisplayName : FText::FromString(TEXT("선택된 Page 없음")));
+	}
+
+	if (ProgressBar_HP)
+	{
+		const float Percent = bHasSelectedPage && SelectedPageSummary.MaxHealth > 0.f
+			? FMath::Clamp(SelectedPageSummary.Health / SelectedPageSummary.MaxHealth, 0.f, 1.f)
+			: 0.f;
+		ProgressBar_HP->SetPercent(Percent);
+	}
+
+	if (Text_HPValue)
+	{
+		Text_HPValue->SetText(bHasSelectedPage
+			? FText::Format(FText::FromString(TEXT("HP {0} / {1}")), FMath::RoundToInt(SelectedPageSummary.Health), FMath::RoundToInt(SelectedPageSummary.MaxHealth))
+			: FText::GetEmpty());
+	}
+
+	if (Text_Status)
+	{
+		Text_Status->SetText(bHasSelectedPage ? SelectedPageSummary.StatusText : FText::GetEmpty());
+	}
+
+	if (Text_Volume)
+	{
+		Text_Volume->SetText(bHasSelectedPage
+			? FText::Format(FText::FromString(TEXT("부피 {0} / {1}")), FMath::RoundToInt(SelectedPageSummary.CurrentInventoryVolume), FMath::RoundToInt(SelectedPageSummary.MaxInventoryVolume))
+			: FText::GetEmpty());
+	}
+
+	if (Text_Weight)
+	{
+		Text_Weight->SetText(bHasSelectedPage
+			? FText::Format(FText::FromString(TEXT("무게 {0} / {1}")), FMath::RoundToInt(SelectedPageSummary.CurrentInventoryWeight), FMath::RoundToInt(SelectedPageSummary.MaxInventoryWeight))
+			: FText::GetEmpty());
+	}
+
+	RebuildQuickbarWidgets();
+}
+
+void UPanel_Pages::RebuildQuickbarWidgets()
+{
+	if (!UniformGrid_Quickbar && !WrapBox_Quickbar)
+	{
+		return;
+	}
+
+	if (UniformGrid_Quickbar)
+	{
+		UniformGrid_Quickbar->ClearChildren();
+	}
+	else
+	{
+		WrapBox_Quickbar->ClearChildren();
+	}
+
+	const int32 Columns = FMath::Max(1, QuickbarColumns);
+	UE_LOG(LogTemp, Log, TEXT("[Pages] RebuildQuickbar Grid=%d SlotClass=%s"),
+		UniformGrid_Quickbar ? 1 : 0,
+		*GetNameSafe(QuickbarSlotClass));
+
+	for (const FPageQuickSlotView& SlotView : SelectedPageQuickSlots)
+	{
+		if (QuickbarSlotClass)
+		{
+			if (UPageQuickbarSlot* SlotWidget = CreateWidget<UPageQuickbarSlot>(this, QuickbarSlotClass))
+			{
+				SlotWidget->Setup(SlotView);
+				if (UniformGrid_Quickbar)
+				{
+					if (UUniformGridSlot* GridSlot = UniformGrid_Quickbar->AddChildToUniformGrid(
+						SlotWidget,
+						SlotView.SlotIndex / Columns,
+						SlotView.SlotIndex % Columns))
+					{
+						GridSlot->SetHorizontalAlignment(HAlign_Fill);
+						GridSlot->SetVerticalAlignment(VAlign_Fill);
+					}
+				}
+				else if (UWrapBoxSlot* WrapSlot = WrapBox_Quickbar->AddChildToWrapBox(SlotWidget))
+				{
+					WrapSlot->SetPadding(FMargin(0.f, 0.f, 6.f, 6.f));
+				}
+			}
+			continue;
+		}
+
+		// Keep the quickbar inspectable before its dedicated WBP presentation is created.
+		UE_LOG(LogTemp, Warning, TEXT("[Pages] Quickbar slot fallback used for slot %d. SlotClass=%s"),
+			SlotView.SlotIndex + 1,
+			*GetNameSafe(QuickbarSlotClass));
+
+		UTextBlock* FallbackSlot = NewObject<UTextBlock>(this);
+		FallbackSlot->SetJustification(ETextJustify::Center);
+		FallbackSlot->SetText(FText::Format(
+			FText::FromString(TEXT("[{0}]\n{1}")),
+			SlotView.SlotLabel,
+			SlotView.bAssigned ? SlotView.DisplayName : FText::GetEmpty()));
+		if (UniformGrid_Quickbar)
+		{
+			if (UUniformGridSlot* GridSlot = UniformGrid_Quickbar->AddChildToUniformGrid(
+				FallbackSlot,
+				SlotView.SlotIndex / Columns,
+				SlotView.SlotIndex % Columns))
+			{
+				GridSlot->SetHorizontalAlignment(HAlign_Fill);
+				GridSlot->SetVerticalAlignment(VAlign_Fill);
+			}
+		}
+		else if (UWrapBoxSlot* WrapSlot = WrapBox_Quickbar->AddChildToWrapBox(FallbackSlot))
+		{
+			WrapSlot->SetPadding(FMargin(0.f, 0.f, 6.f, 6.f));
+		}
+	}
+}
+
+void UPanel_Pages::RebindSelectedPageStats(APageCharacter* SelectedPage)
+{
+	UStatsComponent* NewStats = SelectedPage ? SelectedPage->GetStats() : nullptr;
+	if (ObservedStats.Get() == NewStats)
+	{
+		return;
+	}
+
+	UnbindObservedStats();
+	if (NewStats)
+	{
+		ObservedStats = NewStats;
+		NewStats->OnStatsChanged.AddDynamic(this, &UPanel_Pages::HandleSelectedPageStatsChanged);
+	}
+}
+
+void UPanel_Pages::UnbindObservedStats()
+{
+	if (UStatsComponent* Stats = ObservedStats.Get())
+	{
+		Stats->OnStatsChanged.RemoveDynamic(this, &UPanel_Pages::HandleSelectedPageStatsChanged);
+	}
+	ObservedStats.Reset();
+}
+
+void UPanel_Pages::BindWorldActorDestroyed()
+{
+	if (!ActorDestroyedHandle.IsValid())
+	{
+		if (UWorld* World = GetWorld())
+		{
+			ActorDestroyedHandle = World->AddOnActorDestroyedHandler(
+				FOnActorDestroyed::FDelegate::CreateUObject(this, &UPanel_Pages::HandleWorldActorDestroyed));
+		}
+	}
+}
+
+void UPanel_Pages::UnbindWorldActorDestroyed()
+{
+	if (ActorDestroyedHandle.IsValid())
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->RemoveOnActorDestroyedHandler(ActorDestroyedHandle);
+		}
+		ActorDestroyedHandle.Reset();
 	}
 }
 
 void UPanel_Pages::HandlePageEntryClicked(int32 PageId)
 {
 	RequestSelectPage(PageId);
+}
+
+void UPanel_Pages::HandleDetailsClicked()
+{
+	if (SelectedPageSummary.PageId != INDEX_NONE)
+	{
+		OnDetailsRequested(SelectedPageSummary);
+	}
+}
+
+void UPanel_Pages::HandleEditSkillsClicked()
+{
+	if (SelectedPageSummary.PageId == INDEX_NONE)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Pages] Edit skills ignored because no Page is selected"));
+		return;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[Pages] Edit skills clicked for PageId=%d"), SelectedPageSummary.PageId);
+
+	if (AEidosPlayerController* EidosPC = Cast<AEidosPlayerController>(GetOwningPlayer()))
+	{
+		if (AEidosHUD* EidosHUD = Cast<AEidosHUD>(EidosPC->GetHUD()))
+		{
+			if (UHUDRootWidget* HUDRoot = EidosHUD->GetHUDRootWidget())
+			{
+				HUDRoot->ShowPageSkillEditor(this);
+				return;
+			}
+		}
+	}
+
+	OnEditSkillsRequested(SelectedPageSummary);
+}
+
+void UPanel_Pages::HandleSelectedPageStatsChanged()
+{
+	// Hunger and fatigue update continuously in the simulation. Rebuilding the
+	// entry list here destroys the widget under the cursor every tick, which
+	// makes its hover state flicker and can swallow its click.
+	RefreshSelectedPageVitals();
+}
+
+void UPanel_Pages::RefreshSelectedPageVitals()
+{
+	AEidosPlayerController* EidosPC = Cast<AEidosPlayerController>(GetOwningPlayer());
+	APageCharacter* SelectedPage = EidosPC ? EidosPC->GetSelectedPage() : nullptr;
+	if (!SelectedPage || SelectedPage->GetPageEntityId() != SelectedPageSummary.PageId)
+	{
+		// A different Page was selected outside this panel; rebuild once to make
+		// the list selection and the detail view agree again.
+		RefreshFromWorld();
+		return;
+	}
+
+	SelectedPageSummary.StatusText = BuildPageStatusText(SelectedPage);
+	SelectedPageSummary.bIsInDungeon = SelectedPage->IsInDungeon();
+	SelectedPageSummary.bIsInTurnCombat = SelectedPage->IsInTurnCombat();
+	SelectedPageSummary.bHasActiveCombatTurn = SelectedPage->HasActiveCombatTurn();
+	SelectedPageSummary.CurrentInventoryVolume = SelectedPage->GetCurrentInventoryVolume();
+	SelectedPageSummary.MaxInventoryVolume = SelectedPage->GetMaxInventoryVolume();
+	SelectedPageSummary.CurrentInventoryWeight = SelectedPage->GetCurrentInventoryWeight();
+	SelectedPageSummary.MaxInventoryWeight = SelectedPage->GetMaxInventoryWeight();
+
+	if (UStatsComponent* Stats = SelectedPage->GetStats())
+	{
+		SelectedPageSummary.bIsDead = Stats->IsDead();
+		SelectedPageSummary.Health = Stats->GetHealth();
+		SelectedPageSummary.MaxHealth = Stats->GetMaxHealth();
+		SelectedPageSummary.Hunger = Stats->GetHunger();
+		SelectedPageSummary.Fatigue = Stats->GetFatigue();
+	}
+
+	if (Text_HPValue)
+	{
+		Text_HPValue->SetText(FText::Format(
+			FText::FromString(TEXT("HP {0} / {1}")),
+			FMath::RoundToInt(SelectedPageSummary.Health),
+			FMath::RoundToInt(SelectedPageSummary.MaxHealth)));
+	}
+
+	if (ProgressBar_HP)
+	{
+		const float Percent = SelectedPageSummary.MaxHealth > 0.f
+			? FMath::Clamp(SelectedPageSummary.Health / SelectedPageSummary.MaxHealth, 0.f, 1.f)
+			: 0.f;
+		ProgressBar_HP->SetPercent(Percent);
+	}
+
+	if (Text_Status)
+	{
+		Text_Status->SetText(SelectedPageSummary.StatusText);
+	}
+
+	if (Text_Volume)
+	{
+		Text_Volume->SetText(FText::Format(FText::FromString(TEXT("부피 {0} / {1}")),
+			FMath::RoundToInt(SelectedPageSummary.CurrentInventoryVolume),
+			FMath::RoundToInt(SelectedPageSummary.MaxInventoryVolume)));
+	}
+
+	if (Text_Weight)
+	{
+		Text_Weight->SetText(FText::Format(FText::FromString(TEXT("무게 {0} / {1}")),
+			FMath::RoundToInt(SelectedPageSummary.CurrentInventoryWeight),
+			FMath::RoundToInt(SelectedPageSummary.MaxInventoryWeight)));
+	}
+}
+
+void UPanel_Pages::HandleWorldActorDestroyed(AActor* DestroyedActor)
+{
+	APageCharacter* DestroyedPage = Cast<APageCharacter>(DestroyedActor);
+	if (!DestroyedPage || !DestroyedPage->IsFriendly())
+	{
+		return;
+	}
+
+	RefreshFromWorld();
+
+	// The player controller may select a replacement Page during destruction.
+	// Refresh once more after that selection and the actor removal are complete.
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimerForNextTick(
+			FTimerDelegate::CreateWeakLambda(this, [this]()
+			{
+				RefreshFromWorld();
+			}));
+	}
 }

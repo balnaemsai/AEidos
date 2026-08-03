@@ -48,6 +48,10 @@ public:
 	UFUNCTION(BlueprintPure, Category="Skill")
 	bool HasSkill(FName SkillId) const;
 
+	// Grants ownership without awarding XP. Used by Page presets, recruitment, and rewards.
+	UFUNCTION(BlueprintCallable, Category="Skill")
+	void GrantSkill(FName SkillId);
+
 	const TMap<FName, FPageSkillRuntime>& GetAllSkillStates() const { return Skills; }
 
 	// Save/Load 용

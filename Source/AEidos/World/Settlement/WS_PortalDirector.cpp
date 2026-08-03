@@ -488,12 +488,6 @@ bool UWS_PortalDirector::ValidateEntry(int32 PortalId) const
 
 bool UWS_PortalDirector::RequestEnterPortal(int32 PortalId, APageCharacter* EnteringPage)
 {
-	if (!ValidateEntry(PortalId))
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Portal] RequestEnterPortal failed PortalId=%d"), PortalId);
-		return false;
-	}
-
 	if (!EnteringPage)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Portal] RequestEnterPortal failed: entering page missing"));
@@ -507,15 +501,27 @@ bool UWS_PortalDirector::RequestEnterPortal(int32 PortalId, APageCharacter* Ente
 		return false;
 	}
 
+	// An entered portal remains usable while its dungeon is intact so additional
+	// Pages can join the same expedition before the core is destroyed.
+	const bool bJoiningActiveDungeon = DungeonRuntime->IsActiveDungeonForPortal(PortalId);
+	if (!bJoiningActiveDungeon && !ValidateEntry(PortalId))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Portal] RequestEnterPortal failed PortalId=%d"), PortalId);
+		return false;
+	}
+
 	if (!DungeonRuntime->EnterDungeonForPortal(PortalId, EnteringPage))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Portal] RequestEnterPortal failed: dungeon runtime rejected request"));
 		return false;
 	}
 
-	if (FPortalState* State = ActivePortals.Find(PortalId))
+	if (!bJoiningActiveDungeon)
 	{
-		SetPortalStatus(*State, EPortalStatus::Entered);
+		if (FPortalState* State = ActivePortals.Find(PortalId))
+		{
+			SetPortalStatus(*State, EPortalStatus::Entered);
+		}
 	}
 
 	UE_LOG(LogTemp, Log,
@@ -540,7 +546,11 @@ void UWS_PortalDirector::OnDungeonCleared(int32 PortalId)
 
 	UE_LOG(LogTemp, Log, TEXT("[Portal] DungeonCleared PortalId=%d"), PortalId);
 
-	PlannedRemovePortals.AddUnique(PortalId);
+	// This can be called during another system's commit phase.  Queueing it for
+	// the next portal plan is unreliable because that plan resets its queue.
+	// Remove both the visible portal and its active state immediately on clear.
+	RemovePortalInternal(PortalId);
+	bDirty = true;
 }
 
 void UWS_PortalDirector::SpawnPortalNow()

@@ -5,6 +5,7 @@
 #include "Combat/WS_CombatDirector.h"
 #include "Entities/Page/Components/StatsComponent.h"
 #include "Entities/Page/Components/SkillComponent.h"
+#include "Entities/Items/InventoryComponent.h"
 #include "Framework/EidosPlayerController.h"
 #include "Player/Camera/CameraModeComponent.h"
 
@@ -28,6 +29,7 @@ APageCharacter::APageCharacter()
 
 	Stats = CreateDefaultSubobject<UStatsComponent>(TEXT("StatsComponent"));
 	Skills = CreateDefaultSubobject<USkillComponent>(TEXT("SkillComponent"));
+	Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComponent"));
 	
 	bUseControllerRotationYaw = false;
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
@@ -88,6 +90,7 @@ APageCharacter::APageCharacter()
 	SetViewMode(EPageViewMode::ThirdPerson);
 
 	CombatActionSlots.SetNum(10);
+	DefaultSkillIds.Add(TEXT("Slash"));
 
 }
 
@@ -108,6 +111,17 @@ void APageCharacter::ToggleViewMode()
 void APageCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	for (const FName SkillId : DefaultSkillIds)
+	{
+		GrantSkill(SkillId);
+	}
+	EnsureDefaultCombatLoadout();
+	if (Inventory)
+	{
+		Inventory->SetCapacity(MaxInventoryWeight, MaxInventoryVolume);
+		Inventory->OnInventoryChanged.AddDynamic(this, &APageCharacter::HandleInventoryChanged);
+	}
 
 	PreviousWorldLocation = GetActorLocation();
 
@@ -276,6 +290,46 @@ int32 APageCharacter::GetSkillLevel(FName SkillId) const
 	return Skills->GetSkillLevel(SkillId);
 }
 
+void APageCharacter::GrantSkill(FName SkillId)
+{
+	if (Skills && !SkillId.IsNone())
+	{
+		Skills->GrantSkill(SkillId);
+	}
+}
+
+void APageCharacter::EnsureDefaultCombatLoadout()
+{
+	if (!IsFriendly())
+	{
+		return;
+	}
+
+	bool bHasAssignedAction = false;
+	for (const FPageCombatActionSlot& Slot : CombatActionSlots)
+	{
+		if (Slot.ActionType != EPageCombatActionType::None)
+		{
+			bHasAssignedAction = true;
+			break;
+		}
+	}
+
+	if (bHasAssignedAction)
+	{
+		return;
+	}
+
+	const FName DefaultSkillId(TEXT("Slash"));
+	GrantSkill(DefaultSkillId);
+
+	FPageCombatActionSlot SlashSlot;
+	SlashSlot.ActionType = EPageCombatActionType::ActiveSkill;
+	SlashSlot.ActionId = DefaultSkillId;
+	SlashSlot.DisplayName = FText::FromString(TEXT("Slash"));
+	SetCombatActionSlot(0, SlashSlot);
+}
+
 void APageCharacter::SetPageEntityId(int32 NewPageEntityId)
 {
 	PageEntityId = FMath::Max(0, NewPageEntityId);
@@ -350,9 +404,42 @@ void APageCharacter::SetCombatActionSlot(int32 SlotIndex, const FPageCombatActio
 
 void APageCharacter::SetInventorySummary(float InCurrentVolume, float InMaxVolume, float InCurrentWeight, float InMaxWeight)
 {
-	CurrentInventoryVolume = FMath::Max(0.f, InCurrentVolume);
-	MaxInventoryVolume = FMath::Max(CurrentInventoryVolume, InMaxVolume);
-	CurrentInventoryWeight = FMath::Max(0.f, InCurrentWeight);
-	MaxInventoryWeight = FMath::Max(CurrentInventoryWeight, InMaxWeight);
+	MaxInventoryVolume = FMath::Max(InCurrentVolume, InMaxVolume);
+	MaxInventoryWeight = FMath::Max(InCurrentWeight, InMaxWeight);
+	if (Inventory)
+	{
+		Inventory->SetCapacity(MaxInventoryWeight, MaxInventoryVolume);
+	}
+	else
+	{
+		CurrentInventoryVolume = FMath::Max(0.f, InCurrentVolume);
+		CurrentInventoryWeight = FMath::Max(0.f, InCurrentWeight);
+	}
+}
+
+float APageCharacter::GetCurrentInventoryVolume() const
+{
+	return Inventory ? Inventory->GetCurrentVolume() : CurrentInventoryVolume;
+}
+
+float APageCharacter::GetMaxInventoryVolume() const
+{
+	return Inventory ? Inventory->GetMaxVolume() : MaxInventoryVolume;
+}
+
+float APageCharacter::GetCurrentInventoryWeight() const
+{
+	return Inventory ? Inventory->GetCurrentWeight() : CurrentInventoryWeight;
+}
+
+float APageCharacter::GetMaxInventoryWeight() const
+{
+	return Inventory ? Inventory->GetMaxWeight() : MaxInventoryWeight;
+}
+
+void APageCharacter::HandleInventoryChanged()
+{
+	CurrentInventoryVolume = Inventory ? Inventory->GetCurrentVolume() : CurrentInventoryVolume;
+	CurrentInventoryWeight = Inventory ? Inventory->GetCurrentWeight() : CurrentInventoryWeight;
 }
 

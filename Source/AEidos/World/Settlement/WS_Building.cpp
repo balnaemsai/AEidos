@@ -79,6 +79,18 @@ void UWS_Building::LoadBuildingDefs()
 	}
 }
 
+void UWS_Building::GetCompletedBuildingIds(TArray<FName>& OutBuildingIds) const
+{
+	OutBuildingIds.Reset();
+	for (const FConstructionSiteState& Site : ConstructionSites)
+	{
+		if (Site.State == EConstructionSiteLifecycle::Completed)
+		{
+			OutBuildingIds.Add(Site.BuildingId);
+		}
+	}
+}
+
 const FBuildingDefinitionRow* UWS_Building::FindBuildingDef(FName BuildingId) const
 {
 	return BuildingDefs.Find(BuildingId);

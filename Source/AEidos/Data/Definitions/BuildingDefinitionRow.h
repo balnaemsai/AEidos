@@ -79,4 +79,11 @@ struct FBuildingDefinitionRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TArray<FAutoWorkEntry> AutoWorks;
+
+	// Completed buildings contribute to the shared settlement warehouse.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Storage", meta=(ClampMin="0.0"))
+	float StorageWeightCapacity = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Storage", meta=(ClampMin="0.0"))
+	float StorageVolumeCapacity = 0.f;
 };

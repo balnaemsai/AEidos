@@ -2,6 +2,7 @@
 
 
 #include "Combat/WS_CombatDirector.h"
+#include "Entities/Page/Components/SkillComponent.h"
 
 #include "Data/Definitions/SkillDefinitionRow.h"
 #include "World/Dungeon/DungeonCoreActor.h"
@@ -10,6 +11,7 @@
 #include "Entities/Page/PageCharacter.h"
 #include "Entities/Page/Components/StatsComponent.h"
 #include "Framework/EidosPlayerController.h"
+#include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "Player/Camera/CameraModeComponent.h"
 #include "Simulation/SimCommandBuffer.h"
@@ -43,6 +45,30 @@ TArray<APageCharacter*> UWS_CombatDirector::GatherLivingPages() const
 	}
 
 	return Pages;
+}
+
+ADungeonCoreActor* UWS_CombatDirector::FindLivingDungeonCore() const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+
+	for (TActorIterator<ADungeonCoreActor> It(World); It; ++It)
+	{
+		if (ADungeonCoreActor* Core = *It; IsValid(Core) && Core->GetHealth() > 0.f)
+		{
+			return Core;
+		}
+	}
+
+	return nullptr;
+}
+
+bool UWS_CombatDirector::HasDungeonCoreObjective() const
+{
+	return ActiveEncounter.bCombatSpaceIsDungeon && FindLivingDungeonCore() != nullptr;
 }
 
 APageCharacter* UWS_CombatDirector::FindClosestHostileTarget(APageCharacter* Source, const TArray<APageCharacter*>& Candidates, float MaxRangeCm) const
@@ -143,6 +169,26 @@ bool UWS_CombatDirector::TryStartEncounter(const TArray<APageCharacter*>& Pages)
 				Combatants.Num(),
 				Page->IsInDungeon() ? 1 : 0);
 			return true;
+		}
+	}
+
+	// The dungeon core is a hostile objective rather than a turn-taking Page.
+	// It keeps a friendly-only dungeon encounter alive until the core is destroyed.
+	if (ADungeonCoreActor* Core = FindLivingDungeonCore())
+	{
+		for (APageCharacter* Page : Pages)
+		{
+			if (!Page || !Page->IsFriendly() || !Page->IsInDungeon())
+			{
+				continue;
+			}
+
+			if (FVector::DistSquared(Page->GetActorLocation(), Core->GetActorLocation()) <= FMath::Square(EncounterStartRangeCm))
+			{
+				StartEncounter({Page}, true);
+				UE_LOG(LogTemp, Log, TEXT("[Combat] Core objective encounter started by %s"), *GetNameSafe(Page));
+				return true;
+			}
 		}
 	}
 
@@ -303,7 +349,8 @@ void UWS_CombatDirector::RefreshEncounterState()
 		}
 	}
 
-	if (FriendlyCount == 0 || HostileCount == 0)
+	// A living dungeon core is a hostile objective even though it does not take turns.
+	if (FriendlyCount == 0 || (HostileCount == 0 && !HasDungeonCoreObjective()))
 	{
 		EndEncounter(TEXT("OneFactionRemaining"));
 		return;
@@ -472,6 +519,12 @@ bool UWS_CombatDirector::ExecutePendingFriendlyAction(USimCommandBuffer* Cmd, AP
 		return false;
 	}
 
+	if (!ActivePage->Skills || !ActivePage->Skills->HasSkill(Request.ActionId))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Combat] %s does not own active skill %s"), *GetNameSafe(ActivePage), *Request.ActionId.ToString());
+		return false;
+	}
+
 	AActor* TargetActor = Request.TargetActor.Get();
 	APageCharacter* TargetPage = Cast<APageCharacter>(TargetActor);
 	ADungeonCoreActor* TargetCore = Cast<ADungeonCoreActor>(TargetActor);
@@ -483,17 +536,28 @@ bool UWS_CombatDirector::ExecutePendingFriendlyAction(USimCommandBuffer* Cmd, AP
 			return false;
 		}
 
-		if (SkillDef->bTargetHostileOnly && !ActivePage->IsHostileTo(TargetPage))
+		if (!TargetPage && !TargetCore)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Combat] Skill %s has an unsupported target %s"), *Request.ActionId.ToString(), *GetNameSafe(TargetActor));
+			return false;
+		}
+
+		if (SkillDef->bTargetHostileOnly && TargetPage && !ActivePage->IsHostileTo(TargetPage))
 		{
 			return false;
 		}
 
-		if (ActivePage->IsInDungeon() != TargetPage->IsInDungeon())
+		if (TargetPage && ActivePage->IsInDungeon() != TargetPage->IsInDungeon())
 		{
 			return false;
 		}
 
-		const float Distance = FVector::Distance(ActivePage->GetActorLocation(), TargetPage->GetActorLocation());
+		if (TargetCore && !ActivePage->IsInDungeon())
+		{
+			return false;
+		}
+
+		const float Distance = FVector::Distance(ActivePage->GetActorLocation(), TargetActor->GetActorLocation());
 		if (Distance > SkillDef->CombatRangeCm)
 		{
 			UE_LOG(LogTemp, Warning,
@@ -513,7 +577,7 @@ bool UWS_CombatDirector::ExecutePendingFriendlyAction(USimCommandBuffer* Cmd, AP
 
 	const TWeakObjectPtr<APageCharacter> WeakAttacker = ActivePage;
 	const TWeakObjectPtr<AActor> WeakTarget = TargetActor;
-	const float Damage = SkillDef->CombatDamageAmount;
+	const float Damage = SkillDef->CombatDamageAmount * ActivePage->GetSkillMultiplier(Request.ActionId);
 	const FName SkillId = Request.ActionId;
 
 	Cmd->Enqueue([WeakAttacker, WeakTarget, Damage, SkillId]()
@@ -895,6 +959,26 @@ int32 UWS_CombatDirector::GetActionPointsRemaining(const APageCharacter* Page) c
 	return 0;
 }
 
+int32 UWS_CombatDirector::GetMaxActionPoints(const APageCharacter* Page) const
+{
+	if (!Page)
+	{
+		return 0;
+	}
+
+	if (const FCombatActionPointState* APState = CombatantActionPoints.Find(Page))
+	{
+		return APState->MaxActionPoints;
+	}
+
+	return 0;
+}
+
+APageCharacter* UWS_CombatDirector::GetActiveCombatantForUI() const
+{
+	return GetActiveCombatant();
+}
+
 bool UWS_CombatDirector::NotifyPageMoved(APageCharacter* Page, float DistanceCm)
 {
 	if (!Page || !IsCombatActive() || !Page->IsFriendly() || !IsPageTurnActive(Page) || DistanceCm <= KINDA_SMALL_NUMBER)
@@ -969,9 +1053,9 @@ bool UWS_CombatDirector::RequestUseCombatAction(APageCharacter* RequestingPage, 
 	if (Slot.ActionType == EPageCombatActionType::ActiveSkill)
 	{
 		const FSkillDefinitionRow* SkillDef = GetActiveSkillDefinition(Slot.ActionId);
-		if (!SkillDef || !SkillDef->bIsActiveCombatSkill)
+		if (!SkillDef || !SkillDef->bIsActiveCombatSkill || !RequestingPage->Skills || !RequestingPage->Skills->HasSkill(Slot.ActionId))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[Combat] Slot %d skill is not a valid active combat skill: %s"), SlotIndex, *Slot.ActionId.ToString());
+			UE_LOG(LogTemp, Warning, TEXT("[Combat] Slot %d does not contain an owned active combat skill: %s"), SlotIndex, *Slot.ActionId.ToString());
 			return false;
 		}
 	}

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Core/Types/WorkTypes.h"
 #include "Data/Definitions/BuildingDefinitionRow.h"
 #include "UI/HUD/Panels/PanelLifeCycle.h"
 #include "Panel_Buildings.generated.h"
@@ -17,7 +18,6 @@ class UBuildEntry;
 class UPanelWidget;
 class UTexture2D;
 struct FWorkDefinitionRow;
-struct FWorkCost;
 
 USTRUCT(BlueprintType)
 struct FBuildPanelItem

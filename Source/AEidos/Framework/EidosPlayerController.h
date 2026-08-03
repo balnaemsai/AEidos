@@ -16,6 +16,7 @@ class APortalActor;
 class AActor;
 class ATerritoryChunkActor;
 class UWS_Population;
+class UWS_CombatDirector;
 
 /**
  * 
@@ -65,6 +66,30 @@ public:
 
 	UFUNCTION()
 	FName GetPendingBuildingId() const;
+
+	UFUNCTION(BlueprintPure, Category="Combat")
+	AActor* GetSelectedCombatTarget() const { return SelectedCombatTarget.Get(); }
+
+	UFUNCTION(BlueprintPure, Category="Combat")
+	int32 GetPendingCombatActionSlot() const { return PendingCombatActionSlot; }
+
+	UFUNCTION(BlueprintPure, Category="Combat")
+	FText GetCombatTargetingHint() const { return CombatTargetingHint; }
+
+	UFUNCTION(BlueprintCallable, Category="Combat")
+	void ClearSelectedCombatTarget();
+
+	UFUNCTION(BlueprintCallable, Category="Combat")
+	bool SelectCombatTarget(AActor* TargetActor);
+
+	UFUNCTION(BlueprintCallable, Category="Combat")
+	bool UseCombatActionSlot(int32 SlotIndex);
+
+	UFUNCTION(BlueprintCallable, Category="Combat")
+	bool RequestCombatEndTurn();
+
+	UFUNCTION(BlueprintImplementableEvent, Category="Combat")
+	void OnSelectedCombatTargetChanged(AActor* NewTarget);
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
@@ -165,7 +190,10 @@ protected:
 	bool TryInteractWithActor(AActor* TargetActor);
 	void SelectAdjacentPage(int32 Direction);
 	void EnsureValidSelectedPage();
-	void TriggerCombatActionSlot(int32 SlotIndex);
+	bool TriggerCombatActionSlot(int32 SlotIndex);
+	bool ExecutePendingCombatAction(APageCharacter* SelectedPage, UWS_CombatDirector* CombatDirector);
+	void SetCombatTargetingHint(const FText& NewHint);
+	void SetSelectedCombatTarget(AActor* NewTarget);
 
 	UPROPERTY(Transient)
 	bool bInBuildPlacementMode = false;
@@ -183,6 +211,15 @@ protected:
 	TWeakObjectPtr<ATerritoryChunkActor> TerritoryPreviewActor;
 
 	UPROPERTY(Transient)
+	TWeakObjectPtr<AActor> SelectedCombatTarget;
+
+	UPROPERTY(Transient)
+	int32 PendingCombatActionSlot = INDEX_NONE;
+
+	UPROPERTY(Transient)
+	FText CombatTargetingHint;
+
+	UPROPERTY(Transient)
 	FIntPoint PendingTerritoryCoord = FIntPoint::ZeroValue;
 
 	UPROPERTY(EditDefaultsOnly, Category="Interaction")
@@ -190,6 +227,10 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category="Interaction")
 	float InteractMaxDistance = 1200.f;
+
+	// Combat targets may be selected before the Page enters the skill's shorter attack range.
+	UPROPERTY(EditDefaultsOnly, Category="Combat")
+	float CombatTargetMaxDistance = 5000.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Interaction")
 	float InteractForwardDotThreshold = 0.55f;

@@ -15,6 +15,7 @@ struct FSkillDefinitionRow;
 struct FWorkDefinitionRow;
 struct FBuildingDefinitionRow;
 struct FResourceDefinitionRow;
+struct FItemDefinitionRow;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogDataRegistry, Log, All);
 
@@ -52,6 +53,10 @@ class AEIDOS_API UGIS_DataRegistry : public UGameInstanceSubsystem
 	UDataTable* GetResourceTable() const;
 	const FResourceDefinitionRow* GetResourceDef(FName ResourceId) const;
 	TArray<FName> GetAllResourceIds() const;
+
+	UDataTable* GetItemTable() const;
+	const FItemDefinitionRow* GetItemDef(FName ItemId) const;
+	TArray<FName> GetAllItemIds() const;
 
 	UDataTable* GetPortalTable() const;
 	const FPortalDefinitionRow* GetPortalDef(FName PortalDefId) const;

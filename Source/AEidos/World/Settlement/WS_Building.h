@@ -71,6 +71,8 @@ public:
 	UFUNCTION(BlueprintCallable)
 	const TArray<FConstructionSiteState>& GetConstructionSites() const { return ConstructionSites; }
 
+	void GetCompletedBuildingIds(TArray<FName>& OutBuildingIds) const;
+
 	UFUNCTION(BlueprintCallable)
 	void LoadBuildingDefs();
 

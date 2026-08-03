@@ -1,6 +1,6 @@
-Name,DisplayName,DefaultStartingAmount,bSavable,SortOrder
-EP,"Eidos Point",300,True,0
-Food,"Food",50,True,10
-Wood,"Wood",80,True,20
-Stone,"Stone",60,True,30
-Shard,"Portal Shard",0,True,40
+Name,DisplayName,DefaultStartingAmount,bSavable,SortOrder,UnitWeight,UnitVolume
+EP,"Eidos Point",300,True,0,0.01,0.01
+Food,"Food",50,True,10,0.10,0.20
+Wood,"Wood",80,True,20,0.20,1.00
+Stone,"Stone",60,True,30,0.35,0.80
+Shard,"Portal Shard",0,True,40,2.00,3.00

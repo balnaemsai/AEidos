@@ -1,0 +1,6 @@
+Name,ItemId,DisplayName,Description,ItemType,StackLimit,UnitWeight,UnitVolume,Icon,WorldPickupClass,SettlementResourceId,bConvertOnReturn,bTracksQuality
+WoodBundle,WoodBundle,Wood Bundle,Raw wood carried out of a dungeon.,Material,100,0.20,1.00,,,Wood,TRUE,FALSE
+StoneChunk,StoneChunk,Stone Chunk,Raw stone carried out of a dungeon.,Material,100,0.35,0.80,,,Stone,TRUE,FALSE
+Ration,Ration,Ration,A basic meal. Quality support is reserved for the meal system.,Consumable,20,0.25,0.40,,,,FALSE,TRUE
+CoreShard_Wood,CoreShard_Wood,Wood Core Shard,A dimensional core fragment required for permanent production unlocks.,CoreShard,1,2.00,3.00,,,,FALSE,FALSE
+Medkit,Medkit,Field Medkit,A test consumable for the future item-use combat action.,Consumable,10,0.40,0.70,,,,FALSE,FALSE

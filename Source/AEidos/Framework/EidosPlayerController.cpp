@@ -20,12 +20,14 @@
 #include "World/Settlement/WS_Building.h"
 #include "World/Settlement/Building/ConstructionSiteActor.h"
 #include "World/Dungeon/DungeonCoreActor.h"
+#include "World/Dungeon/DungeonReturnPortalActor.h"
 #include "World/Settlement/Portal/PortalActor.h"
 #include "World/Settlement/TerritoryChunkActor.h"
 #include "World/Settlement/WS_Population.h"
 #include "World/Settlement/WS_SettlementSpace.h"
 #include "Data/GIS_DataRegistry.h"
 #include "Data/Definitions/BuildingDefinitionRow.h"
+#include "Data/Definitions/SkillDefinitionRow.h"
 #include "Entities/Page/Components/StatsComponent.h"
 #include "Iris/ReplicationState/PropertyNetSerializerInfoRegistry.h"
 
@@ -389,6 +391,25 @@ void AEidosPlayerController::OnPrimaryClick(const FInputActionValue& Value)
 	{
 		if (CombatDirector->IsCombatActive())
 		{
+			APageCharacter* SelectedPage = GetSelectedPage();
+			if (SelectedPage && CombatDirector->IsPageTurnActive(SelectedPage))
+			{
+				AActor* FocusedTarget = FindFocusedCombatActionTarget();
+				if (!SelectCombatTarget(FocusedTarget))
+				{
+					SetCombatTargetingHint(FText::FromString(TEXT("NO VALID HOSTILE TARGET IN FOCUS")));
+					return;
+				}
+
+				if (PendingCombatActionSlot != INDEX_NONE)
+				{
+					ExecutePendingCombatAction(SelectedPage, CombatDirector);
+				}
+				else
+				{
+					SetCombatTargetingHint(FText::FromString(TEXT("TARGET SELECTED - CHOOSE AN ACTION")));
+				}
+			}
 			return;
 		}
 	}
@@ -485,14 +506,7 @@ void AEidosPlayerController::OnSelectNextPage()
 
 void AEidosPlayerController::OnEndTurnPressed()
 {
-	APageCharacter* SelectedPage = GetSelectedPage();
-	UWS_CombatDirector* CombatDirector = GetWorld() ? GetWorld()->GetSubsystem<UWS_CombatDirector>() : nullptr;
-	if (!SelectedPage || !CombatDirector)
-	{
-		return;
-	}
-
-	CombatDirector->RequestEndTurn(SelectedPage);
+	RequestCombatEndTurn();
 }
 
 void AEidosPlayerController::OnCombatActionSlot1() { TriggerCombatActionSlot(0); }
@@ -506,17 +520,171 @@ void AEidosPlayerController::OnCombatActionSlot8() { TriggerCombatActionSlot(7);
 void AEidosPlayerController::OnCombatActionSlot9() { TriggerCombatActionSlot(8); }
 void AEidosPlayerController::OnCombatActionSlot0() { TriggerCombatActionSlot(9); }
 
-void AEidosPlayerController::TriggerCombatActionSlot(int32 SlotIndex)
+bool AEidosPlayerController::UseCombatActionSlot(int32 SlotIndex)
+{
+	return TriggerCombatActionSlot(SlotIndex);
+}
+
+bool AEidosPlayerController::RequestCombatEndTurn()
+{
+	APageCharacter* SelectedPage = GetSelectedPage();
+	UWS_CombatDirector* CombatDirector = GetWorld() ? GetWorld()->GetSubsystem<UWS_CombatDirector>() : nullptr;
+	const bool bAccepted = SelectedPage && CombatDirector && CombatDirector->RequestEndTurn(SelectedPage);
+	if (bAccepted)
+	{
+		PendingCombatActionSlot = INDEX_NONE;
+		SetCombatTargetingHint(FText::FromString(TEXT("TURN ENDED")));
+	}
+	return bAccepted;
+}
+
+bool AEidosPlayerController::TriggerCombatActionSlot(int32 SlotIndex)
 {
 	APageCharacter* SelectedPage = GetSelectedPage();
 	UWS_CombatDirector* CombatDirector = GetWorld() ? GetWorld()->GetSubsystem<UWS_CombatDirector>() : nullptr;
 	if (!SelectedPage || !CombatDirector || !CombatDirector->IsCombatActive() || !CombatDirector->IsPageTurnActive(SelectedPage))
 	{
+		return false;
+	}
+
+	FPageCombatActionSlot ActionSlot;
+	if (!SelectedPage->GetCombatActionSlot(SlotIndex, ActionSlot) || ActionSlot.ActionType == EPageCombatActionType::None)
+	{
+		SetCombatTargetingHint(FText::FromString(TEXT("THIS QUICKBAR SLOT IS EMPTY")));
+		return false;
+	}
+
+	if (ActionSlot.ActionType == EPageCombatActionType::EndTurn)
+	{
+		return RequestCombatEndTurn();
+	}
+
+	if (ActionSlot.ActionType != EPageCombatActionType::ActiveSkill)
+	{
+		SetCombatTargetingHint(FText::FromString(TEXT("THIS ACTION IS NOT IMPLEMENTED")));
+		return false;
+	}
+
+	UGameInstance* GI = GetGameInstance();
+	UGIS_DataRegistry* Registry = GI ? GI->GetSubsystem<UGIS_DataRegistry>() : nullptr;
+	const FSkillDefinitionRow* SkillDef = Registry && Registry->EnsureReadySync() ? Registry->GetSkillDef(ActionSlot.ActionId) : nullptr;
+	if (!SkillDef || !SkillDef->bIsActiveCombatSkill)
+	{
+		SetCombatTargetingHint(FText::FromString(TEXT("ACTION DATA IS UNAVAILABLE")));
+		return false;
+	}
+
+	if (!SkillDef->bRequiresTarget)
+	{
+		return CombatDirector->RequestUseCombatAction(SelectedPage, SlotIndex, nullptr);
+	}
+
+	PendingCombatActionSlot = SlotIndex;
+	SetCombatTargetingHint(FText::Format(FText::FromString(TEXT("{0}: SELECT A HOSTILE TARGET")),
+		ActionSlot.DisplayName.IsEmpty() ? FText::FromName(ActionSlot.ActionId) : ActionSlot.DisplayName));
+	return true;
+}
+
+bool AEidosPlayerController::ExecutePendingCombatAction(APageCharacter* SelectedPage, UWS_CombatDirector* CombatDirector)
+{
+	if (!SelectedPage || !CombatDirector || PendingCombatActionSlot == INDEX_NONE)
+	{
+		return false;
+	}
+
+	FPageCombatActionSlot ActionSlot;
+	AActor* TargetActor = SelectedCombatTarget.Get();
+	if (!SelectedPage->GetCombatActionSlot(PendingCombatActionSlot, ActionSlot) || !IsValid(TargetActor))
+	{
+		SetCombatTargetingHint(FText::FromString(TEXT("SELECT A VALID TARGET")));
+		return false;
+	}
+
+	UGameInstance* GI = GetGameInstance();
+	UGIS_DataRegistry* Registry = GI ? GI->GetSubsystem<UGIS_DataRegistry>() : nullptr;
+	const FSkillDefinitionRow* SkillDef = Registry && Registry->EnsureReadySync() ? Registry->GetSkillDef(ActionSlot.ActionId) : nullptr;
+	if (!SkillDef)
+	{
+		SetCombatTargetingHint(FText::FromString(TEXT("ACTION DATA IS UNAVAILABLE")));
+		return false;
+	}
+
+	const float Distance = FVector::Distance(SelectedPage->GetActorLocation(), TargetActor->GetActorLocation());
+	if (Distance > SkillDef->CombatRangeCm)
+	{
+		SetCombatTargetingHint(FText::Format(FText::FromString(TEXT("TARGET OUT OF RANGE ({0}/{1})")),
+			FMath::RoundToInt(Distance), FMath::RoundToInt(SkillDef->CombatRangeCm)));
+		return false;
+	}
+	if (CombatDirector->GetActionPointsRemaining(SelectedPage) < SkillDef->CombatActionPointCost)
+	{
+		SetCombatTargetingHint(FText::FromString(TEXT("NOT ENOUGH AP")));
+		return false;
+	}
+
+	const int32 SlotToExecute = PendingCombatActionSlot;
+	if (CombatDirector->RequestUseCombatAction(SelectedPage, SlotToExecute, TargetActor))
+	{
+		PendingCombatActionSlot = INDEX_NONE;
+		SetCombatTargetingHint(FText::Format(FText::FromString(TEXT("{0} EXECUTED")), ActionSlot.DisplayName));
+		return true;
+	}
+
+	SetCombatTargetingHint(FText::FromString(TEXT("ACTION COULD NOT BE EXECUTED")));
+	return false;
+}
+
+void AEidosPlayerController::SetCombatTargetingHint(const FText& NewHint)
+{
+	CombatTargetingHint = NewHint;
+}
+
+void AEidosPlayerController::SetSelectedCombatTarget(AActor* NewTarget)
+{
+	if (SelectedCombatTarget.Get() == NewTarget)
+	{
 		return;
 	}
 
-	AActor* TargetActor = FindFocusedCombatActionTarget();
-	CombatDirector->RequestUseCombatAction(SelectedPage, SlotIndex, TargetActor);
+	SelectedCombatTarget = NewTarget;
+	OnSelectedCombatTargetChanged(NewTarget);
+	UE_LOG(LogTemp, Log, TEXT("[Combat] Selected target: %s"), *GetNameSafe(NewTarget));
+}
+
+void AEidosPlayerController::ClearSelectedCombatTarget()
+{
+	SetSelectedCombatTarget(nullptr);
+}
+
+bool AEidosPlayerController::SelectCombatTarget(AActor* TargetActor)
+{
+	APageCharacter* SelectedPage = GetSelectedPage();
+	if (!SelectedPage || !IsValid(TargetActor))
+	{
+		return false;
+	}
+
+	if (APageCharacter* TargetPage = Cast<APageCharacter>(TargetActor))
+	{
+		if (!SelectedPage->IsHostileTo(TargetPage) || SelectedPage->IsInDungeon() != TargetPage->IsInDungeon())
+		{
+			return false;
+		}
+	}
+	else if (Cast<ADungeonCoreActor>(TargetActor))
+	{
+		if (!SelectedPage->IsInDungeon())
+		{
+			return false;
+		}
+	}
+	else
+	{
+		return false;
+	}
+
+	SetSelectedCombatTarget(TargetActor);
+	return true;
 }
 
 void AEidosPlayerController::BeginBuildPlacement(FName BuildingId)
@@ -911,7 +1079,7 @@ AActor* AEidosPlayerController::FindFocusedInteractActor() const
 
 	const FVector ViewOrigin = PlayerCameraManager->GetCameraLocation();
 	const FVector ViewForward = PlayerCameraManager->GetActorForwardVector().GetSafeNormal();
-	const float MaxDistSq = FMath::Square(InteractMaxDistance);
+	const float MaxDistSq = FMath::Square(CombatTargetMaxDistance);
 
 	AActor* BestActor = nullptr;
 	float BestScore = -FLT_MAX;
@@ -943,10 +1111,14 @@ AActor* AEidosPlayerController::FindFocusedInteractActor() const
 		{
 			InteractionPriority = 1000.f;
 		}
-		else if (Candidate->IsA<ADungeonCoreActor>())
-		{
-			InteractionPriority = 950.f;
-		}
+	else if (Candidate->IsA<ADungeonCoreActor>())
+	{
+		InteractionPriority = 950.f;
+	}
+	else if (Candidate->IsA<ADungeonReturnPortalActor>())
+	{
+		InteractionPriority = 975.f;
+	}
 		else
 		{
 			continue;
@@ -975,7 +1147,7 @@ AActor* AEidosPlayerController::FindFocusedCombatActionTarget() const
 
 	const FVector ViewOrigin = PlayerCameraManager->GetCameraLocation();
 	const FVector ViewForward = PlayerCameraManager->GetActorForwardVector().GetSafeNormal();
-	const float MaxDistSq = FMath::Square(InteractMaxDistance);
+	const float MaxDistSq = FMath::Square(CombatTargetMaxDistance);
 
 	AActor* BestTarget = nullptr;
 	float BestScore = -FLT_MAX;
@@ -1051,6 +1223,12 @@ bool AEidosPlayerController::TryInteractWithActor(AActor* TargetActor)
 	if (ADungeonCoreActor* DungeonCore = Cast<ADungeonCoreActor>(TargetActor))
 	{
 		DungeonCore->Interact(this);
+		return true;
+	}
+
+	if (ADungeonReturnPortalActor* ReturnPortal = Cast<ADungeonReturnPortalActor>(TargetActor))
+	{
+		ReturnPortal->Interact(this);
 		return true;
 	}
 

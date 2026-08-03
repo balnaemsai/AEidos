@@ -15,8 +15,10 @@
 #include "Components/CapsuleComponent.h"
 #include "World/Dungeon/DungeonSettlementPreset.h"
 #include "World/Dungeon/DungeonCoreActor.h"
+#include "World/Dungeon/DungeonReturnPortalActor.h"
 #include "World/Settlement/TerritoryChunkActor.h"
 #include "World/Settlement/WS_PortalDirector.h"
+#include "World/Settlement/WS_ItemStorage.h"
 #include "World/Settlement/WS_SettlementSpace.h"
 
 namespace
@@ -59,12 +61,19 @@ UWS_DungeonRuntime::UWS_DungeonRuntime()
 	DefaultEnemyPageClass = TSoftClassPtr<APageCharacter>(
 		FSoftObjectPath(TEXT("/Game/Blueprints/BP_PageCharacter.BP_PageCharacter_C")));
 	DefaultDungeonCoreClass = ADungeonCoreActor::StaticClass();
+	DungeonReturnPortalClass = ADungeonReturnPortalActor::StaticClass();
 }
 
 void UWS_DungeonRuntime::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 	ResetActiveSession();
+}
+
+void UWS_DungeonRuntime::Deinitialize()
+{
+	ResetActiveSession();
+	Super::Deinitialize();
 }
 
 bool UWS_DungeonRuntime::EnterDungeonForPortal(int32 PortalId, APageCharacter* EnteringPage)
@@ -89,8 +98,14 @@ bool UWS_DungeonRuntime::EnterDungeonForPortal(int32 PortalId, APageCharacter* E
 
 	if (HasActiveDungeon())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] EnterDungeonForPortal failed: active dungeon already exists"));
-		return false;
+		if (ActiveSession.PortalId != PortalId || ActiveSession.bCoreDestroyed)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] EnterDungeonForPortal failed: another dungeon is active"));
+			return false;
+		}
+
+		AddPageToActiveDungeon(EnteringPage);
+		return true;
 	}
 
 	if (DefaultDungeonLevel.IsNull())
@@ -135,7 +150,7 @@ bool UWS_DungeonRuntime::EnterDungeonForPortal(int32 PortalId, APageCharacter* E
 	ActiveSession.PortalId = PortalId;
 	ActiveSession.PageEntityId = EnteringPage->GetPageEntityId();
 	ActiveSession.ReturnTransform = EnteringPage->GetActorTransform();
-	ActiveSession.OccupyingPage = EnteringPage;
+	ActiveSession.DungeonPages.Add(EnteringPage);
 	ActiveSession.StreamingLevel = StreamingLevel;
 	ActiveSession.bPageTransferred = false;
 
@@ -159,14 +174,37 @@ bool UWS_DungeonRuntime::HasActiveDungeon() const
 
 bool UWS_DungeonRuntime::IsPageInActiveDungeon(const APageCharacter* Page) const
 {
-	return Page && ActiveSession.OccupyingPage.Get() == Page && Page->IsInDungeon();
+	return Page && Page->IsInDungeon() && ActiveSession.DungeonPages.ContainsByPredicate(
+		[Page](const TWeakObjectPtr<APageCharacter>& Candidate)
+		{
+			return Candidate.Get() == Page;
+		});
+}
+
+bool UWS_DungeonRuntime::IsActiveDungeonForPortal(int32 PortalId) const
+{
+	return HasActiveDungeon() && ActiveSession.PortalId == PortalId;
+}
+
+bool UWS_DungeonRuntime::IsDungeonCollapseActive() const
+{
+	return HasActiveDungeon() && ActiveSession.bCoreDestroyed && ActiveSession.CollapseEndTimeSeconds > 0.0;
+}
+
+float UWS_DungeonRuntime::GetDungeonCollapseRemainingSeconds() const
+{
+	if (!IsDungeonCollapseActive() || !GetWorld())
+	{
+		return 0.f;
+	}
+
+	return FMath::Max(0.f, static_cast<float>(ActiveSession.CollapseEndTimeSeconds - GetWorld()->GetTimeSeconds()));
 }
 
 void UWS_DungeonRuntime::HandleActiveDungeonLevelShown()
 {
 	ULevelStreamingDynamic* StreamingLevel = ActiveSession.StreamingLevel.Get();
-	APageCharacter* Page = ActiveSession.OccupyingPage.Get();
-	if (!StreamingLevel || !Page)
+	if (!StreamingLevel || ActiveSession.DungeonPages.IsEmpty())
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] HandleActiveDungeonLevelShown failed: session invalid"));
 		return;
@@ -181,12 +219,18 @@ void UWS_DungeonRuntime::HandleActiveDungeonLevelShown()
 
 	const FTransform EntryTransform = ResolveDungeonEntryTransform(LoadedLevel);
 	SpawnPresetLayoutIntoDungeon(LoadedLevel);
-	MovePageIntoDungeon(Page, EntryTransform);
+	for (const TWeakObjectPtr<APageCharacter>& WeakPage : ActiveSession.DungeonPages)
+	{
+		if (APageCharacter* Page = WeakPage.Get())
+		{
+			MovePageIntoDungeon(Page, EntryTransform);
+		}
+	}
 	ActiveSession.bPageTransferred = true;
 
 	UE_LOG(LogTemp, Log,
 		TEXT("[DungeonRuntime] PageId=%d moved into dungeon for PortalId=%d at %s"),
-		Page->GetPageEntityId(),
+		ActiveSession.DungeonPages.Num(),
 		ActiveSession.PortalId,
 		*EntryTransform.GetLocation().ToString());
 }
@@ -431,6 +475,11 @@ void UWS_DungeonRuntime::SpawnDungeonEnemies(ULevel* LoadedLevel, const UDungeon
 
 void UWS_DungeonRuntime::ResetActiveSession()
 {
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(DungeonCollapseTimerHandle);
+	}
+
 	if (ULevelStreamingDynamic* StreamingLevel = ActiveSession.StreamingLevel.Get())
 	{
 		StreamingLevel->OnLevelShown.RemoveDynamic(this, &UWS_DungeonRuntime::HandleActiveDungeonLevelShown);
@@ -457,30 +506,105 @@ void UWS_DungeonRuntime::HandleDungeonCoreDestroyed(ADungeonCoreActor* Destroyed
 		return;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[DungeonRuntime] Dungeon core destroyed for PortalId=%d"), ActiveSession.PortalId);
-	ExitActiveDungeon(true);
+	ULevel* LoadedLevel = ActiveSession.StreamingLevel.IsValid() ? ActiveSession.StreamingLevel->GetLoadedLevel() : nullptr;
+	StartDungeonCollapse(DestroyedCore->GetActorTransform(), LoadedLevel);
 }
 
-void UWS_DungeonRuntime::ExitActiveDungeon(bool bDungeonCleared)
+void UWS_DungeonRuntime::StartDungeonCollapse(const FTransform& CoreTransform, ULevel* LoadedLevel)
 {
-	if (APageCharacter* Page = ActiveSession.OccupyingPage.Get())
+	if (ActiveSession.bCoreDestroyed || !GetWorld())
 	{
-		const FTransform ReturnTransform = ResolveGroundedCharacterTransform(GetWorld(), ActiveSession.ReturnTransform, Page);
-		Page->SetActorLocationAndRotation(
-			ReturnTransform.GetLocation(),
-			ReturnTransform.GetRotation().Rotator(),
-			false,
-			nullptr,
-			ETeleportType::TeleportPhysics);
-		Page->SetIsInDungeon(false);
+		return;
 	}
 
-	if (bDungeonCleared)
+	ActiveSession.bCoreDestroyed = true;
+	ActiveSession.CollapseEndTimeSeconds = GetWorld()->GetTimeSeconds() + DungeonCollapseDurationSeconds;
+
+	if (DungeonReturnPortalClass && LoadedLevel)
 	{
-		if (UWS_PortalDirector* PortalDirector = GetWorld() ? GetWorld()->GetSubsystem<UWS_PortalDirector>() : nullptr)
+		FActorSpawnParameters Params;
+		Params.OverrideLevel = LoadedLevel;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+		FTransform PortalTransform = CoreTransform;
+		PortalTransform.AddToTranslation(FVector(0.f, 0.f, 30.f));
+		if (ADungeonReturnPortalActor* ReturnPortal = GetWorld()->SpawnActor<ADungeonReturnPortalActor>(DungeonReturnPortalClass, PortalTransform, Params))
 		{
-			PortalDirector->OnDungeonCleared(ActiveSession.PortalId);
+			ActiveSession.ReturnPortal = ReturnPortal;
+			ActiveSession.SpawnedActors.Add(ReturnPortal);
 		}
+	}
+
+	GetWorld()->GetTimerManager().SetTimer(
+		DungeonCollapseTimerHandle,
+		this,
+		&UWS_DungeonRuntime::HandleDungeonCollapseExpired,
+		DungeonCollapseDurationSeconds,
+		false);
+
+	UE_LOG(LogTemp, Log,
+		TEXT("[DungeonRuntime] Core destroyed for PortalId=%d. Return portal opened; collapse in %.0f seconds."),
+		ActiveSession.PortalId,
+		DungeonCollapseDurationSeconds);
+}
+
+bool UWS_DungeonRuntime::ReturnPageFromActiveDungeon(APageCharacter* ReturningPage)
+{
+	if (!ReturningPage || !IsPageInActiveDungeon(ReturningPage) || !IsDungeonCollapseActive())
+	{
+		return false;
+	}
+
+	const FTransform ReturnTransform = ResolveGroundedCharacterTransform(GetWorld(), ActiveSession.ReturnTransform, ReturningPage);
+	ReturningPage->SetActorLocationAndRotation(
+		ReturnTransform.GetLocation(),
+		ReturnTransform.GetRotation().Rotator(),
+		false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
+	ReturningPage->SetIsInDungeon(false);
+	ReturningPage->CurrentJobState = FPageJobState{};
+	if (UWS_ItemStorage* ItemStorage = GetWorld()->GetSubsystem<UWS_ItemStorage>())
+	{
+		ItemStorage->DepositPageInventory(ReturningPage);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[DungeonRuntime] PageId=%d returned before collapse"), ReturningPage->GetPageEntityId());
+	return true;
+}
+
+void UWS_DungeonRuntime::HandleDungeonCollapseExpired()
+{
+	if (!HasActiveDungeon())
+	{
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] Dungeon collapse expired for PortalId=%d"), ActiveSession.PortalId);
+	DestroyPagesStillInDungeon();
+	EndActiveDungeonSession();
+}
+
+void UWS_DungeonRuntime::DestroyPagesStillInDungeon()
+{
+	for (const TWeakObjectPtr<APageCharacter>& WeakPage : ActiveSession.DungeonPages)
+	{
+		APageCharacter* Page = WeakPage.Get();
+		if (!Page || !Page->IsInDungeon())
+		{
+			continue;
+		}
+
+		UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] PageId=%d was lost in dungeon collapse"), Page->GetPageEntityId());
+		Page->Destroy();
+	}
+}
+
+void UWS_DungeonRuntime::EndActiveDungeonSession()
+{
+	if (UWS_PortalDirector* PortalDirector = GetWorld() ? GetWorld()->GetSubsystem<UWS_PortalDirector>() : nullptr)
+	{
+		PortalDirector->OnDungeonCleared(ActiveSession.PortalId);
 	}
 
 	ResetActiveSession();
@@ -501,6 +625,30 @@ void UWS_DungeonRuntime::MovePageIntoDungeon(APageCharacter* Page, const FTransf
 		nullptr,
 		ETeleportType::TeleportPhysics);
 	Page->SetIsInDungeon(true);
+}
+
+void UWS_DungeonRuntime::AddPageToActiveDungeon(APageCharacter* Page)
+{
+	if (!Page || ActiveSession.bCoreDestroyed)
+	{
+		return;
+	}
+
+	const bool bAlreadyTracked = ActiveSession.DungeonPages.ContainsByPredicate(
+		[Page](const TWeakObjectPtr<APageCharacter>& Candidate)
+		{
+			return Candidate.Get() == Page;
+		});
+	if (!bAlreadyTracked)
+	{
+		ActiveSession.DungeonPages.Add(Page);
+	}
+
+	if (ActiveSession.bPageTransferred)
+	{
+		ULevel* LoadedLevel = ActiveSession.StreamingLevel.IsValid() ? ActiveSession.StreamingLevel->GetLoadedLevel() : nullptr;
+		MovePageIntoDungeon(Page, ResolveDungeonEntryTransform(LoadedLevel));
+	}
 }
 
 

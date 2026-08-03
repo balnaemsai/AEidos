@@ -7,6 +7,16 @@
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
 
+namespace
+{
+	FLinearColor UiColor(const TCHAR* Hex, float Alpha = 1.f)
+	{
+		FLinearColor Color = FLinearColor::FromSRGBColor(FColor::FromHex(Hex));
+		Color.A = Alpha;
+		return Color;
+	}
+}
+
 void UPageEntry::NativeConstruct()
 {
 	Super::NativeConstruct();
@@ -39,7 +49,9 @@ void UPageEntry::Setup(const FPageSummaryView& InView)
 
 	if (Border_Selection)
 	{
-		Border_Selection->SetBrushColor(ViewData.bIsSelected ? FLinearColor(0.95f, 0.8f, 0.25f, 1.f) : FLinearColor(0.12f, 0.12f, 0.12f, 0.85f));
+		Border_Selection->SetBrushColor(ViewData.bIsSelected
+			? UiColor(TEXT("D7C9AE"), 0.65f)
+			: UiColor(TEXT("DCE0E2"), 0.14f));
 	}
 }
 

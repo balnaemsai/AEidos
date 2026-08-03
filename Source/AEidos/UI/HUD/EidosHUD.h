@@ -8,6 +8,7 @@
 #include "EidosHUD.generated.h"
 
 class UUserWidget;
+class UHUDRootWidget;
 
 /**
  * 
@@ -20,6 +21,8 @@ class AEIDOS_API AEidosHUD : public AHUD
 public:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	UHUDRootWidget* GetHUDRootWidget() const;
 	
 private:
 	UPROPERTY(EditDefaultsOnly, Category = "UI")

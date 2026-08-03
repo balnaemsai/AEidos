@@ -7,6 +7,7 @@
 class APageCharacter;
 class AActor;
 class ADungeonCoreActor;
+class ADungeonReturnPortalActor;
 class ATerritoryChunkActor;
 class UDungeonSettlementPreset;
 class ULevel;
@@ -34,8 +35,11 @@ struct FDungeonSessionRuntime
 	TArray<TObjectPtr<AActor>> SpawnedActors;
 
 	TWeakObjectPtr<ADungeonCoreActor> DungeonCore;
-	TWeakObjectPtr<APageCharacter> OccupyingPage;
+	TWeakObjectPtr<ADungeonReturnPortalActor> ReturnPortal;
+	TArray<TWeakObjectPtr<APageCharacter>> DungeonPages;
 	TWeakObjectPtr<ULevelStreamingDynamic> StreamingLevel;
+	bool bCoreDestroyed = false;
+	double CollapseEndTimeSeconds = 0.0;
 };
 
 UCLASS()
@@ -47,15 +51,28 @@ public:
 	UWS_DungeonRuntime();
 
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+	virtual void Deinitialize() override;
 
 	UFUNCTION(BlueprintCallable, Category="Dungeon")
 	bool EnterDungeonForPortal(int32 PortalId, APageCharacter* EnteringPage);
+
+	UFUNCTION(BlueprintCallable, Category="Dungeon")
+	bool ReturnPageFromActiveDungeon(APageCharacter* ReturningPage);
 
 	UFUNCTION(BlueprintPure, Category="Dungeon")
 	bool HasActiveDungeon() const;
 
 	UFUNCTION(BlueprintPure, Category="Dungeon")
 	bool IsPageInActiveDungeon(const APageCharacter* Page) const;
+
+	UFUNCTION(BlueprintPure, Category="Dungeon")
+	bool IsActiveDungeonForPortal(int32 PortalId) const;
+
+	UFUNCTION(BlueprintPure, Category="Dungeon")
+	bool IsDungeonCollapseActive() const;
+
+	UFUNCTION(BlueprintPure, Category="Dungeon")
+	float GetDungeonCollapseRemainingSeconds() const;
 
 private:
 	UFUNCTION()
@@ -64,6 +81,8 @@ private:
 	UFUNCTION()
 	void HandleDungeonCoreDestroyed(ADungeonCoreActor* DestroyedCore);
 
+	void HandleDungeonCollapseExpired();
+
 	FTransform ResolveDungeonEntryTransform(ULevel* LoadedLevel) const;
 	FTransform MakeDungeonWorldTransform(const FTransform& LocalTransform) const;
 	void SpawnPresetLayoutIntoDungeon(ULevel* LoadedLevel);
@@ -71,9 +90,12 @@ private:
 	void SpawnDungeonBuildings(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
 	void SpawnDungeonCore(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
 	void SpawnDungeonEnemies(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
-	void ExitActiveDungeon(bool bDungeonCleared);
+	void StartDungeonCollapse(const FTransform& CoreTransform, ULevel* LoadedLevel);
+	void DestroyPagesStillInDungeon();
+	void EndActiveDungeonSession();
 	void ResetActiveSession();
 	void MovePageIntoDungeon(APageCharacter* Page, const FTransform& EntryTransform);
+	void AddPageToActiveDungeon(APageCharacter* Page);
 
 	UPROPERTY(EditDefaultsOnly, Category="Dungeon")
 	TSoftObjectPtr<UWorld> DefaultDungeonLevel;
@@ -87,6 +109,12 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category="Dungeon")
 	TSubclassOf<ADungeonCoreActor> DefaultDungeonCoreClass;
 
+	UPROPERTY(EditDefaultsOnly, Category="Dungeon|Collapse", meta=(ClampMin="1.0"))
+	float DungeonCollapseDurationSeconds = 120.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Dungeon|Collapse")
+	TSubclassOf<ADungeonReturnPortalActor> DungeonReturnPortalClass;
+
 	UPROPERTY(EditDefaultsOnly, Category="Dungeon")
 	FTransform DungeonLevelTransform = FTransform(FRotator::ZeroRotator, FVector(500000.f, 0.f, 0.f));
 
@@ -95,4 +123,6 @@ private:
 
 	UPROPERTY(Transient)
 	FDungeonSessionRuntime ActiveSession;
+
+	FTimerHandle DungeonCollapseTimerHandle;
 };

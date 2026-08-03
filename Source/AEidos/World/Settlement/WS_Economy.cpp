@@ -5,6 +5,7 @@
 #include "Data/GIS_DataRegistry.h"
 #include "Data/Definitions/ResourceDefinitionRow.h"
 #include "Engine/GameInstance.h"
+#include "World/Settlement/WS_ItemStorage.h"
 
 int32 UWS_Economy::GetAmount(FName ResourceId) const
 {
@@ -17,17 +18,50 @@ int32 UWS_Economy::GetAmount(FName ResourceId) const
 
 void UWS_Economy::AddAmount(FName ResourceId, int32 Delta)
 {
+	TryAddAmount(ResourceId, Delta);
+}
+
+int32 UWS_Economy::TryAddAmount(FName ResourceId, int32 RequestedAmount)
+{
 	if (ResourceId.IsNone())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Economy] AddAmount_Internal called with None ResourceId"));
-		return;
+		UE_LOG(LogTemp, Warning, TEXT("[Economy] TryAddAmount called with None ResourceId"));
+		return 0;
 	}
-	
-	int32& V = Wallet.Amounts.FindOrAdd(ResourceId);
-	V += Delta;
-	bDirty = true;
 
-	UE_LOG(LogTemp, Log, TEXT("[Economy] %s += %d (Total=%d)"), *ResourceId.ToString(), Delta, V);
+	if (RequestedAmount == 0)
+	{
+		return 0;
+	}
+
+	int32& V = Wallet.Amounts.FindOrAdd(ResourceId);
+	int32 AppliedAmount = RequestedAmount;
+	if (RequestedAmount > 0)
+	{
+		if (UWS_ItemStorage* Storage = GetWorld() ? GetWorld()->GetSubsystem<UWS_ItemStorage>() : nullptr)
+		{
+			AppliedAmount = Storage->GetMaxResourceAmountThatFits(ResourceId, RequestedAmount);
+		}
+	}
+	else
+	{
+		AppliedAmount = -FMath::Min(V, -RequestedAmount);
+	}
+
+	if (AppliedAmount == 0)
+	{
+		return 0;
+	}
+
+	V += AppliedAmount;
+	bDirty = true;
+	if (UWS_ItemStorage* Storage = GetWorld() ? GetWorld()->GetSubsystem<UWS_ItemStorage>() : nullptr)
+	{
+		Storage->NotifyResourceChanged();
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[Economy] %s += %d (Total=%d)"), *ResourceId.ToString(), AppliedAmount, V);
+	return AppliedAmount;
 }
 
 void UWS_Economy::SimPost_Implementation(float FixedDeltaSeconds)

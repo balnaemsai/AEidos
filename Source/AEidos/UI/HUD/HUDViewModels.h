@@ -27,6 +27,21 @@ struct FPageQuickSlotView
 
 	UPROPERTY(BlueprintReadOnly)
 	bool bAssigned = false;
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bIsSelected = false;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 ActionPointCost = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bRequiresTarget = false;
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bCanUse = false;
+
+	UPROPERTY(BlueprintReadOnly)
+	FText DisabledReason;
 };
 
 USTRUCT(BlueprintType)
@@ -108,6 +123,45 @@ struct FPageSummaryView
 
 	UPROPERTY(BlueprintReadOnly)
 	float MaxInventoryWeight = 0.f;
+};
+
+USTRUCT(BlueprintType)
+struct FDungeonPortalView
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 PortalId = INDEX_NONE;
+
+	UPROPERTY(BlueprintReadOnly)
+	FText DisplayName;
+
+	UPROPERTY(BlueprintReadOnly)
+	FText TierText;
+
+	UPROPERTY(BlueprintReadOnly)
+	FText StatusText;
+
+	UPROPERTY(BlueprintReadOnly)
+	FText RaidTimerText;
+
+	UPROPERTY(BlueprintReadOnly)
+	FText DistanceText;
+
+	UPROPERTY(BlueprintReadOnly)
+	FText ExpeditionText;
+
+	UPROPERTY(BlueprintReadOnly)
+	FLinearColor StatusColor = FLinearColor::White;
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bIsSelected = false;
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bDungeonEntered = false;
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bCleared = false;
 };
 
 USTRUCT(BlueprintType)

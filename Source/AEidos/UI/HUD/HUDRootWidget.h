@@ -11,6 +11,9 @@
 
 class UPanelNavBarWidget;
 class UPanelHostWidget;
+class UCombatHUDWidget;
+class UPanel_Pages;
+class UPageSkillEditorWidget;
 
 /**
  * 
@@ -25,6 +28,13 @@ public:
 	UCanvasPanel* GetPagesLayer()   const { return Layer_Panels; }
 	UOverlay* GetContextLayer() const { return Layer_Context; }
 	UOverlay* GetModalLayer()   const { return Layer_Modal; }
+
+	// Shared exit point for a close button placed inside any in-game panel.
+	UFUNCTION(BlueprintCallable, Category="Panel")
+	bool CloseActivePanel();
+
+	UFUNCTION(BlueprintCallable, Category="Pages")
+	bool ShowPageSkillEditor(UPanel_Pages* SourcePanel);
 
 protected:
 	virtual void NativeConstruct() override;
@@ -46,7 +56,16 @@ protected:
 	UPROPERTY(meta = (BindWidget))
 	UOverlay* Layer_Context;
 
+	UPROPERTY(meta = (BindWidgetOptional))
+	UCombatHUDWidget* CombatHUD;
+
 	UPROPERTY(meta = (BindWidget))
 	UOverlay* Layer_Modal;
+
+	UPROPERTY(EditDefaultsOnly, Category="Pages")
+	TSubclassOf<UPageSkillEditorWidget> PageSkillEditorClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UPageSkillEditorWidget> ActivePageSkillEditor;
 	
 };

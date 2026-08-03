@@ -8,6 +8,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Simulation/SimCommandBuffer.h"
 #include "Entities/Page/PageCharacter.h"
+#include "Entities/Items/InventoryComponent.h"
 #include "Entities/Page/Components/StatsComponent.h"
 
 void UWS_Population::Initialize(FSubsystemCollectionBase& Collection)
@@ -348,6 +349,10 @@ void UWS_Population::WriteToSnapshot_Implementation(FEidosWorldSnapshot& InOutSn
 		PageSnapshot.PageId = Page->GetPageEntityId();
 		PageSnapshot.Transform = Page->GetActorTransform();
 		PageSnapshot.PageClass = FSoftClassPath(Page->GetClass());
+		if (const UInventoryComponent* Inventory = Page->GetInventory())
+		{
+			PageSnapshot.InventoryStacks = Inventory->GetStacks();
+		}
 		InOutSnapshot.Population.Pages.Add(PageSnapshot);
 	}
 }
@@ -417,6 +422,10 @@ void UWS_Population::ApplySnapshot_Implementation(const FEidosWorldSnapshot& Sna
 		Page->SetPageEntityId(PageSnapshot.PageId);
 		Page->SetActorTransform(PageSnapshot.Transform);
 		Page->CurrentJobState = FPageJobState{};
+		if (UInventoryComponent* Inventory = Page->GetInventory())
+		{
+			Inventory->SetStacks(PageSnapshot.InventoryStacks);
+		}
 		MatchedPages.Add(Page);
 		NextPageId = FMath::Max(NextPageId, PageSnapshot.PageId + 1);
 	}

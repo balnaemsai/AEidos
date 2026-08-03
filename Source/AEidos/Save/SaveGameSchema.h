@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
+#include "Core/Types/ItemTypes.h"
 #include "Core/Types/WorkTypes.h"
 #include "SaveGameSchema.generated.h"
 
@@ -80,6 +81,9 @@ struct FEidosPageSnapshot
 
 	UPROPERTY(BlueprintReadWrite)
 	FSoftClassPath PageClass;
+
+	UPROPERTY(BlueprintReadWrite)
+	TArray<FItemStack> InventoryStacks;
 };
 
 USTRUCT(BlueprintType)

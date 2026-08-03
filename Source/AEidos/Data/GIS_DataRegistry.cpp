@@ -10,6 +10,7 @@
 #include "Data/Definitions/WorkDefinitionRow.h"
 #include "Data/Definitions/BuildingDefinitionRow.h"
 #include "Data/Definitions/ResourceDefinitionRow.h"
+#include "Data/Definitions/ItemDefinitionRow.h"
 
 DEFINE_LOG_CATEGORY(LogDataRegistry);
 
@@ -386,6 +387,28 @@ const FPortalDefinitionRow* UGIS_DataRegistry::GetPortalDef(FName PortalDefId) c
 	}
 
 	return Table->FindRow<FPortalDefinitionRow>(PortalDefId, TEXT("GetPortalDef"));
+}
+
+UDataTable* UGIS_DataRegistry::GetItemTable() const
+{
+	return FindDataTableByName(TEXT("DT_Item"));
+}
+
+const FItemDefinitionRow* UGIS_DataRegistry::GetItemDef(FName ItemId) const
+{
+	UDataTable* ItemTable = GetItemTable();
+	if (!ItemTable || ItemId.IsNone())
+	{
+		return nullptr;
+	}
+
+	return ItemTable->FindRow<FItemDefinitionRow>(ItemId, TEXT("GetItemDef"));
+}
+
+TArray<FName> UGIS_DataRegistry::GetAllItemIds() const
+{
+	UDataTable* ItemTable = GetItemTable();
+	return ItemTable ? ItemTable->GetRowNames() : TArray<FName>{};
 }
 
 TArray<FName> UGIS_DataRegistry::GetAllPortalDefIds() const

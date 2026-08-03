@@ -2,6 +2,7 @@
 
 
 #include "UI/HUD/EidosHUD.h"
+#include "UI/HUD/HUDRootWidget.h"
 #include "Blueprint/UserWidget.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
@@ -82,4 +83,9 @@ void AEidosHUD::DestroyHUDRoot()
 
 	HUDRootWidgetInstance->RemoveFromParent();
 	HUDRootWidgetInstance = nullptr;
+}
+
+UHUDRootWidget* AEidosHUD::GetHUDRootWidget() const
+{
+	return Cast<UHUDRootWidget>(HUDRootWidgetInstance);
 }

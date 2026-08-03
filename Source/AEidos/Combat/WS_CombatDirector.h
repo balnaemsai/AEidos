@@ -9,6 +9,7 @@
 #include "WS_CombatDirector.generated.h"
 
 class AActor;
+class ADungeonCoreActor;
 class USimCommandBuffer;
 struct FSkillDefinitionRow;
 
@@ -100,6 +101,12 @@ public:
 	UFUNCTION(BlueprintPure, Category="Combat")
 	int32 GetActionPointsRemaining(const APageCharacter* Page) const;
 
+	UFUNCTION(BlueprintPure, Category="Combat")
+	int32 GetMaxActionPoints(const APageCharacter* Page) const;
+
+	UFUNCTION(BlueprintPure, Category="Combat")
+	APageCharacter* GetActiveCombatantForUI() const;
+
 	bool NotifyPageMoved(APageCharacter* Page, float DistanceCm);
 	bool RequestEndTurn(APageCharacter* Page);
 	bool RequestUseCombatAction(APageCharacter* RequestingPage, int32 SlotIndex, AActor* OptionalTarget);
@@ -137,6 +144,8 @@ protected:
 
 private:
 	TArray<APageCharacter*> GatherLivingPages() const;
+	ADungeonCoreActor* FindLivingDungeonCore() const;
+	bool HasDungeonCoreObjective() const;
 	APageCharacter* FindClosestHostileTarget(APageCharacter* Source, const TArray<APageCharacter*>& Candidates, float MaxRangeCm = TNumericLimits<float>::Max()) const;
 	TArray<APageCharacter*> GatherEncounterSeedCombatants(APageCharacter* TriggerPage, APageCharacter* TriggerTarget, const TArray<APageCharacter*>& Candidates) const;
 	bool TryStartEncounter(const TArray<APageCharacter*>& Pages);

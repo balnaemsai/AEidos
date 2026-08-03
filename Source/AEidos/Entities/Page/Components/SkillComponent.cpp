@@ -25,6 +25,14 @@ bool USkillComponent::HasSkill(FName SkillId) const
 	return Skills.Contains(SkillId);
 }
 
+void USkillComponent::GrantSkill(FName SkillId)
+{
+	if (!SkillId.IsNone())
+	{
+		EnsureSkillExists(SkillId);
+	}
+}
+
 void USkillComponent::EnsureSkillExists(FName SkillId)
 {
 	if (!Skills.Contains(SkillId))

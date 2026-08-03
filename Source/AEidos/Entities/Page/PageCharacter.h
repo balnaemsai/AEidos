@@ -15,6 +15,7 @@ class UCameraComponent;
 class USceneComponent;
 class USkillComponent;
 class UStaticMeshComponent;
+class UInventoryComponent;
 
 UENUM(BlueprintType)
 enum class EPageViewMode : uint8
@@ -124,6 +125,9 @@ public:
 	UFUNCTION(BlueprintPure, Category="Skill")
 	int32 GetSkillLevel(FName SkillId) const;
 
+	UFUNCTION(BlueprintCallable, Category="Skill")
+	void GrantSkill(FName SkillId);
+
 	UFUNCTION(BlueprintPure, Category="Page|Identity")
 	int32 GetPageEntityId() const { return PageEntityId; }
 
@@ -170,16 +174,19 @@ public:
 	void SetCombatActionSlot(int32 SlotIndex, const FPageCombatActionSlot& InSlot);
 
 	UFUNCTION(BlueprintPure, Category="Page|Inventory")
-	float GetCurrentInventoryVolume() const { return CurrentInventoryVolume; }
+	float GetCurrentInventoryVolume() const;
 
 	UFUNCTION(BlueprintPure, Category="Page|Inventory")
-	float GetMaxInventoryVolume() const { return MaxInventoryVolume; }
+	float GetMaxInventoryVolume() const;
 
 	UFUNCTION(BlueprintPure, Category="Page|Inventory")
-	float GetCurrentInventoryWeight() const { return CurrentInventoryWeight; }
+	float GetCurrentInventoryWeight() const;
 
 	UFUNCTION(BlueprintPure, Category="Page|Inventory")
-	float GetMaxInventoryWeight() const { return MaxInventoryWeight; }
+	float GetMaxInventoryWeight() const;
+
+	UFUNCTION(BlueprintPure, Category="Page|Inventory")
+	UInventoryComponent* GetInventory() const { return Inventory; }
 
 	UFUNCTION(BlueprintCallable, Category="Page|Inventory")
 	void SetInventorySummary(float InCurrentVolume, float InMaxVolume, float InCurrentWeight, float InMaxWeight);
@@ -215,6 +222,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Combat", meta=(AllowPrivateAccess="true"))
 	UStaticMeshComponent* CombatIndicatorMesh;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Inventory", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UInventoryComponent> Inventory;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
 	EPageViewMode ViewMode = EPageViewMode::ThirdPerson;
 
@@ -222,6 +232,7 @@ protected:
 	USceneComponent* ThirdPersonPivot;
 
 	void TickMovementSkillGain(float DeltaSeconds);
+	void EnsureDefaultCombatLoadout();
 
 	// ?ㅽ궗 ?뺤쓽 湲곕낯 ?명똿
 	void BuildDefaultSkillDefinitions();
@@ -254,6 +265,10 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page|Combat")
 	TArray<FPageCombatActionSlot> CombatActionSlots;
 
+	// Blueprint presets define which skills this Page starts with. Slots may reference only owned skills.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Page|Combat")
+	TArray<FName> DefaultSkillIds;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Page|Inventory")
 	float CurrentInventoryVolume = 0.f;
 
@@ -265,6 +280,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Page|Inventory")
 	float MaxInventoryWeight = 50.f;
+
+	UFUNCTION()
+	void HandleInventoryChanged();
 
 	// cm ??Running 寃쏀뿕移?
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page|Skills|Tuning")

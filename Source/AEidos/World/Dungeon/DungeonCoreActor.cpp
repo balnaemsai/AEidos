@@ -15,7 +15,11 @@ ADungeonCoreActor::ADungeonCoreActor()
 
 	CoreMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CoreMesh"));
 	CoreMesh->SetupAttachment(Root);
-	CoreMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	// The core must be hittable by the gameplay camera trace as well as visible.
+	CoreMesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	CoreMesh->SetCollisionObjectType(ECC_WorldDynamic);
+	CoreMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
+	CoreMesh->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 	CoreMesh->SetRelativeScale3D(FVector(1.5f));
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
@@ -66,7 +70,8 @@ void ADungeonCoreActor::Interact(APlayerController* InteractingController)
 		return;
 	}
 
-	DestroyCore();
+	// The core is a hostile objective. Interaction selects it; combat skills are the only way to destroy it.
+	EidosPC->SelectCombatTarget(this);
 }
 
 void ADungeonCoreActor::DestroyCore()

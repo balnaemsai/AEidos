@@ -37,6 +37,7 @@ public:
 
 	int32 GetAmount(FName ResourceId) const;
 	void AddAmount(FName ResourceId, int32 Delta);
+	int32 TryAddAmount(FName ResourceId, int32 RequestedAmount);
 
 	//simsystem
 
