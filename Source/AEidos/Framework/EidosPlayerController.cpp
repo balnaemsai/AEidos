@@ -20,6 +20,7 @@
 #include "World/Settlement/WS_Building.h"
 #include "World/Settlement/Building/ConstructionSiteActor.h"
 #include "World/Dungeon/DungeonCoreActor.h"
+#include "World/Interaction/WorldInteractionInterface.h"
 #include "World/Dungeon/DungeonReturnPortalActor.h"
 #include "World/Settlement/Portal/PortalActor.h"
 #include "World/Settlement/TerritoryChunkActor.h"
@@ -140,7 +141,9 @@ void AEidosPlayerController::SetupInputComponent()
 	EI->BindAction(IA_OrbitYaw, ETriggerEvent::Triggered, this, &AEidosPlayerController::OnOrbitYaw);
 	EI->BindAction(IA_Zoom,     ETriggerEvent::Triggered, this, &AEidosPlayerController::OnZoom);
 	EI->BindAction(IA_PrimaryClick, ETriggerEvent::Started, this, &AEidosPlayerController::OnPrimaryClick);
+	EI->BindAction(IA_PrimaryClick, ETriggerEvent::Triggered, this, &AEidosPlayerController::OnPrimaryClickHeld);
 	InputComponent->BindKey(EKeys::F, IE_Pressed, this, &AEidosPlayerController::OnInteractPressed);
+	InputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AEidosPlayerController::OnSecondaryClick);
 	InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AEidosPlayerController::OnToggleFirstPersonUIFocus);
 	InputComponent->BindKey(EKeys::LeftBracket, IE_Pressed, this, &AEidosPlayerController::OnSelectPreviousPage);
 	InputComponent->BindKey(EKeys::RightBracket, IE_Pressed, this, &AEidosPlayerController::OnSelectNextPage);
@@ -412,6 +415,62 @@ void AEidosPlayerController::OnPrimaryClick(const FInputActionValue& Value)
 			}
 			return;
 		}
+	}
+
+	if (AActor* FocusedActor = FindFocusedWorldInteractionActor())
+	{
+		if (ExecuteDefaultWorldInteraction(FocusedActor) && GetWorld())
+		{
+			LastWorldInteractionTime = GetWorld()->GetTimeSeconds();
+		}
+	}
+}
+
+void AEidosPlayerController::OnPrimaryClickHeld(const FInputActionValue& Value)
+{
+	// Placement and combat consume primary input differently. Repeating those actions while held
+	// would cause duplicate placement or combat target commands, so only repeat world interactions.
+	if (IsInPlacementMode() || bFirstPersonUIFocusMode || !GetWorld())
+	{
+		return;
+	}
+
+	if (const UWS_CombatDirector* CombatDirector = GetWorld()->GetSubsystem<UWS_CombatDirector>(); CombatDirector && CombatDirector->IsCombatActive())
+	{
+		return;
+	}
+
+	const float Now = GetWorld()->GetTimeSeconds();
+	if (Now - LastWorldInteractionTime < WorldInteractionRepeatInterval)
+	{
+		return;
+	}
+
+	if (AActor* FocusedActor = FindFocusedWorldInteractionActor(); ExecuteDefaultWorldInteraction(FocusedActor))
+	{
+		LastWorldInteractionTime = Now;
+	}
+}
+
+void AEidosPlayerController::OnSecondaryClick()
+{
+	if (IsInPlacementMode() || bFirstPersonUIFocusMode || !GetWorld())
+	{
+		return;
+	}
+
+	const float Now = GetWorld()->GetTimeSeconds();
+	const bool bIsDoubleClick = Now - LastSecondaryClickTime <= ContextInteractionDoubleClickSeconds;
+	LastSecondaryClickTime = Now;
+	if (!bIsDoubleClick)
+	{
+		return;
+	}
+
+	LastSecondaryClickTime = -FLT_MAX;
+	if (AActor* FocusedActor = FindFocusedWorldInteractionActor())
+	{
+		OpenWorldInteractionRadial(FocusedActor);
 	}
 }
 
@@ -1205,6 +1264,111 @@ AActor* AEidosPlayerController::FindFocusedCombatActionTarget() const
 	}
 
 	return BestTarget;
+}
+
+AActor* AEidosPlayerController::FindFocusedWorldInteractionActor() const
+{
+	APageCharacter* SelectedPage = GetSelectedPage();
+	UWorld* World = GetWorld();
+	if (!SelectedPage || !World || !PlayerCameraManager)
+	{
+		return nullptr;
+	}
+
+	const FVector ViewOrigin = PlayerCameraManager->GetCameraLocation();
+	const FVector ViewForward = PlayerCameraManager->GetActorForwardVector().GetSafeNormal();
+	const float MaxDistSq = FMath::Square(InteractMaxDistance);
+	AActor* BestActor = nullptr;
+	float BestScore = -FLT_MAX;
+
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Candidate = *It;
+		if (!IsValid(Candidate) || Candidate == SelectedPage
+			|| !Candidate->GetClass()->ImplementsInterface(UWorldInteractionInterface::StaticClass()))
+		{
+			continue;
+		}
+
+		const FVector ToTarget = Candidate->GetActorLocation() - ViewOrigin;
+		const float DistSq = ToTarget.SizeSquared();
+		if (DistSq > MaxDistSq || DistSq <= KINDA_SMALL_NUMBER)
+		{
+			continue;
+		}
+
+		const float ForwardDot = FVector::DotProduct(ViewForward, ToTarget.GetSafeNormal());
+		if (ForwardDot < InteractForwardDotThreshold)
+		{
+			continue;
+		}
+
+		const float Score = (ForwardDot * 100.f) - FMath::Sqrt(DistSq);
+		if (Score > BestScore)
+		{
+			BestScore = Score;
+			BestActor = Candidate;
+		}
+	}
+
+	return BestActor;
+}
+
+bool AEidosPlayerController::ExecuteDefaultWorldInteraction(AActor* TargetActor)
+{
+	APageCharacter* SelectedPage = GetSelectedPage();
+	if (!SelectedPage || !IsValid(TargetActor)
+		|| !TargetActor->GetClass()->ImplementsInterface(UWorldInteractionInterface::StaticClass()))
+	{
+		return false;
+	}
+
+	TArray<FWorldInteractionOption> Options;
+	IWorldInteractionInterface::Execute_GetAvailableWorldInteractions(TargetActor, SelectedPage, Options);
+	const FWorldInteractionOption* DefaultOption = Options.FindByPredicate([](const FWorldInteractionOption& Option) { return Option.bIsDefault; });
+	return DefaultOption && IWorldInteractionInterface::Execute_ExecuteWorldInteraction(TargetActor, SelectedPage, DefaultOption->InteractionId);
+}
+
+bool AEidosPlayerController::OpenWorldInteractionRadial(AActor* TargetActor)
+{
+	APageCharacter* SelectedPage = GetSelectedPage();
+	if (!SelectedPage || !IsValid(TargetActor)
+		|| !TargetActor->GetClass()->ImplementsInterface(UWorldInteractionInterface::StaticClass()))
+	{
+		return false;
+	}
+
+	TArray<FWorldInteractionOption> Options;
+	IWorldInteractionInterface::Execute_GetAvailableWorldInteractions(TargetActor, SelectedPage, Options);
+	if (Options.IsEmpty())
+	{
+		return false;
+	}
+
+	ContextInteractionTarget = TargetActor;
+	ContextInteractionOptions = MoveTemp(Options);
+	OnWorldInteractionRadialRequested(TargetActor, ContextInteractionOptions);
+	return true;
+}
+
+bool AEidosPlayerController::ExecuteContextWorldInteraction(FName InteractionId)
+{
+	APageCharacter* SelectedPage = GetSelectedPage();
+	AActor* TargetActor = ContextInteractionTarget.Get();
+	const bool bIsKnownOption = ContextInteractionOptions.ContainsByPredicate(
+		[InteractionId](const FWorldInteractionOption& Option) { return Option.InteractionId == InteractionId; });
+	const bool bSuccess = SelectedPage && TargetActor && bIsKnownOption
+		&& TargetActor->GetClass()->ImplementsInterface(UWorldInteractionInterface::StaticClass())
+		&& IWorldInteractionInterface::Execute_ExecuteWorldInteraction(TargetActor, SelectedPage, InteractionId);
+	CloseWorldInteractionRadial();
+	return bSuccess;
+}
+
+void AEidosPlayerController::CloseWorldInteractionRadial()
+{
+	ContextInteractionTarget.Reset();
+	ContextInteractionOptions.Reset();
+	OnWorldInteractionRadialClosed();
 }
 
 bool AEidosPlayerController::TryInteractWithActor(AActor* TargetActor)

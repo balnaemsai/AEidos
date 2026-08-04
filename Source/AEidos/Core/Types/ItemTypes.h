@@ -14,6 +14,29 @@ enum class EItemType : uint8
 	Quest
 };
 
+UENUM(BlueprintType)
+enum class EPageEquipmentSlot : uint8
+{
+	LeftHand,
+	RightHand,
+	Head,
+	UpperBody,
+	LowerBody,
+	Feet
+};
+
+USTRUCT(BlueprintType)
+struct FPageEquipmentSlotState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	EPageEquipmentSlot Slot = EPageEquipmentSlot::RightHand;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FName ItemId = NAME_None;
+};
+
 /** A stack is intentionally value-based so it can be owned by Pages, storage, or world pickups. */
 USTRUCT(BlueprintType)
 struct FItemStack

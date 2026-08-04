@@ -58,11 +58,9 @@ int32 UInventoryComponent::TryAddItem(FName ItemId, int32 RequestedQuantity, flo
 		return 0;
 	}
 
-	const float FreeWeight = FMath::Max(0.f, MaxWeight - GetCurrentWeight());
-	const float FreeVolume = FMath::Max(0.f, MaxVolume - GetCurrentVolume());
-	const int32 ByWeight = Def->UnitWeight > 0.f ? FMath::FloorToInt(FreeWeight / Def->UnitWeight) : RequestedQuantity;
-	const int32 ByVolume = Def->UnitVolume > 0.f ? FMath::FloorToInt(FreeVolume / Def->UnitVolume) : RequestedQuantity;
-	int32 Remaining = FMath::Min3(RequestedQuantity, ByWeight, ByVolume);
+	// Page inventories deliberately accept overflow. Carrying too much is penalized by Page movement,
+	// while settlement storage remains capacity-limited in UWS_ItemStorage.
+	int32 Remaining = RequestedQuantity;
 	int32 Added = 0;
 
 	for (FItemStack& Stack : Stacks)

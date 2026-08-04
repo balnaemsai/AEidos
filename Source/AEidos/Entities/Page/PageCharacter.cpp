@@ -6,6 +6,7 @@
 #include "Entities/Page/Components/StatsComponent.h"
 #include "Entities/Page/Components/SkillComponent.h"
 #include "Entities/Items/InventoryComponent.h"
+#include "Entities/Items/EquipmentComponent.h"
 #include "Framework/EidosPlayerController.h"
 #include "Player/Camera/CameraModeComponent.h"
 
@@ -30,13 +31,14 @@ APageCharacter::APageCharacter()
 	Stats = CreateDefaultSubobject<UStatsComponent>(TEXT("StatsComponent"));
 	Skills = CreateDefaultSubobject<USkillComponent>(TEXT("SkillComponent"));
 	Inventory = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComponent"));
+	Equipment = CreateDefaultSubobject<UEquipmentComponent>(TEXT("EquipmentComponent"));
 	
 	bUseControllerRotationYaw = false;
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 	{
 		MoveComp->bOrientRotationToMovement = true;
 		MoveComp->RotationRate = FRotator(0.f, 540.f, 0.f);
-		MoveComp->MaxWalkSpeed = 450.f;
+		MoveComp->MaxWalkSpeed = BaseWalkSpeed;
 	}
 
 	ThirdPersonPivot = CreateDefaultSubobject<USceneComponent>(TEXT("ThirdPersonPivot"));
@@ -121,6 +123,7 @@ void APageCharacter::BeginPlay()
 	{
 		Inventory->SetCapacity(MaxInventoryWeight, MaxInventoryVolume);
 		Inventory->OnInventoryChanged.AddDynamic(this, &APageCharacter::HandleInventoryChanged);
+		UpdateOverloadMovementSpeed();
 	}
 
 	PreviousWorldLocation = GetActorLocation();
@@ -437,9 +440,35 @@ float APageCharacter::GetMaxInventoryWeight() const
 	return Inventory ? Inventory->GetMaxWeight() : MaxInventoryWeight;
 }
 
+float APageCharacter::GetOverloadRatio() const
+{
+	const float WeightRatio = MaxInventoryWeight > KINDA_SMALL_NUMBER
+		? GetCurrentInventoryWeight() / MaxInventoryWeight : 1.f;
+	const float VolumeRatio = MaxInventoryVolume > KINDA_SMALL_NUMBER
+		? GetCurrentInventoryVolume() / MaxInventoryVolume : 1.f;
+	return FMath::Max(WeightRatio, VolumeRatio);
+}
+
+float APageCharacter::GetOverloadMovementMultiplier() const
+{
+	const float ExcessRatio = FMath::Max(0.f, GetOverloadRatio() - 1.f);
+	return ExcessRatio <= 0.f
+		? 1.f
+		: FMath::Clamp(FMath::Exp(-OverloadDecayRate * ExcessRatio), MinimumOverloadSpeedMultiplier, 1.f);
+}
+
 void APageCharacter::HandleInventoryChanged()
 {
 	CurrentInventoryVolume = Inventory ? Inventory->GetCurrentVolume() : CurrentInventoryVolume;
 	CurrentInventoryWeight = Inventory ? Inventory->GetCurrentWeight() : CurrentInventoryWeight;
+	UpdateOverloadMovementSpeed();
+}
+
+void APageCharacter::UpdateOverloadMovementSpeed()
+{
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->MaxWalkSpeed = BaseWalkSpeed * GetOverloadMovementMultiplier();
+	}
 }
 

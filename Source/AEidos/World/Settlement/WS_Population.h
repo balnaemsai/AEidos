@@ -64,6 +64,22 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Population|Test")
 	FVector TestSpawnOffsetPerPage = FVector(150.f, 0.f, 0.f);
 
+	// Give the first freshly spawned test Page a visible inventory entry for UI verification.
+	UPROPERTY(EditDefaultsOnly, Category="Population|Test")
+	bool bGiveStarterTestItem = true;
+
+	UPROPERTY(EditDefaultsOnly, Category="Population|Test", meta=(EditCondition="bGiveStarterTestItem"))
+	FName StarterTestItemId = TEXT("Ration");
+
+	UPROPERTY(EditDefaultsOnly, Category="Population|Test", meta=(ClampMin="1", EditCondition="bGiveStarterTestItem"))
+	int32 StarterTestItemQuantity = 1;
+
+	UPROPERTY(EditDefaultsOnly, Category="Population|Test")
+	bool bEquipStarterTestTool = true;
+
+	UPROPERTY(EditDefaultsOnly, Category="Population|Test", meta=(EditCondition="bEquipStarterTestTool"))
+	FName StarterTestToolItemId = TEXT("TestPickaxe");
+
 private:
 	
 	void RebuildCacheIfNeeded();

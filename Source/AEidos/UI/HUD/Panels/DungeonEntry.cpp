@@ -7,7 +7,7 @@
 
 namespace
 {
-	FLinearColor UiColor(const TCHAR* Hex, float Alpha = 1.f)
+	FLinearColor DungeonEntryUiColor(const TCHAR* Hex, float Alpha = 1.f)
 	{
 		FLinearColor Color = FLinearColor::FromSRGBColor(FColor::FromHex(Hex));
 		Color.A = Alpha;
@@ -52,8 +52,8 @@ void UDungeonEntry::Setup(const FDungeonPortalView& InView)
 	if (Border_Selection)
 	{
 		Border_Selection->SetBrushColor(ViewData.bIsSelected
-			? UiColor(TEXT("D7C9AE"), 0.65f)
-			: UiColor(TEXT("DCE0E2"), 0.14f));
+			? DungeonEntryUiColor(TEXT("D7C9AE"), 0.65f)
+			: DungeonEntryUiColor(TEXT("DCE0E2"), 0.14f));
 	}
 }
 

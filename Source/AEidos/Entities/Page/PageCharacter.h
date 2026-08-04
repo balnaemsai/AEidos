@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Entities/Items/EquipmentComponent.h"
 #include "GameFramework/Character.h"
 #include "InputActionValue.h"
 #include "PageCharacter.generated.h"
@@ -188,6 +189,15 @@ public:
 	UFUNCTION(BlueprintPure, Category="Page|Inventory")
 	UInventoryComponent* GetInventory() const { return Inventory; }
 
+	UFUNCTION(BlueprintPure, Category="Page|Equipment")
+	UEquipmentComponent* GetEquipment() const { return Equipment; }
+
+	UFUNCTION(BlueprintPure, Category="Page|Inventory")
+	float GetOverloadRatio() const;
+
+	UFUNCTION(BlueprintPure, Category="Page|Inventory")
+	float GetOverloadMovementMultiplier() const;
+
 	UFUNCTION(BlueprintCallable, Category="Page|Inventory")
 	void SetInventorySummary(float InCurrentVolume, float InMaxVolume, float InCurrentWeight, float InMaxWeight);
 
@@ -224,6 +234,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Inventory", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<UInventoryComponent> Inventory;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Equipment", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UEquipmentComponent> Equipment;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
 	EPageViewMode ViewMode = EPageViewMode::ThirdPerson;
@@ -281,8 +294,19 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Page|Inventory")
 	float MaxInventoryWeight = 50.f;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Page|Inventory|Overload", meta=(ClampMin="0.0"))
+	float BaseWalkSpeed = 450.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Page|Inventory|Overload", meta=(ClampMin="0.01"))
+	float OverloadDecayRate = 1.15f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Page|Inventory|Overload", meta=(ClampMin="0.01", ClampMax="1.0"))
+	float MinimumOverloadSpeedMultiplier = 0.10f;
+
 	UFUNCTION()
 	void HandleInventoryChanged();
+
+	void UpdateOverloadMovementSpeed();
 
 	// cm ??Running 寃쏀뿕移?
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page|Skills|Tuning")

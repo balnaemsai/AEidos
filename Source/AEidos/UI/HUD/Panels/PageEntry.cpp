@@ -9,7 +9,7 @@
 
 namespace
 {
-	FLinearColor UiColor(const TCHAR* Hex, float Alpha = 1.f)
+	FLinearColor PageEntryUiColor(const TCHAR* Hex, float Alpha = 1.f)
 	{
 		FLinearColor Color = FLinearColor::FromSRGBColor(FColor::FromHex(Hex));
 		Color.A = Alpha;
@@ -50,8 +50,8 @@ void UPageEntry::Setup(const FPageSummaryView& InView)
 	if (Border_Selection)
 	{
 		Border_Selection->SetBrushColor(ViewData.bIsSelected
-			? UiColor(TEXT("D7C9AE"), 0.65f)
-			: UiColor(TEXT("DCE0E2"), 0.14f));
+			? PageEntryUiColor(TEXT("D7C9AE"), 0.65f)
+			: PageEntryUiColor(TEXT("DCE0E2"), 0.14f));
 	}
 }
 

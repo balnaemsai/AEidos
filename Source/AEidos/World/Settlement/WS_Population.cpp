@@ -9,6 +9,7 @@
 #include "Simulation/SimCommandBuffer.h"
 #include "Entities/Page/PageCharacter.h"
 #include "Entities/Items/InventoryComponent.h"
+#include "Entities/Items/EquipmentComponent.h"
 #include "Entities/Page/Components/StatsComponent.h"
 
 void UWS_Population::Initialize(FSubsystemCollectionBase& Collection)
@@ -236,6 +237,42 @@ void UWS_Population::EnsureTestPageSpawned()
 		if (APageCharacter* Spawned = World->SpawnActor<APageCharacter>(SpawnClass, SpawnLocation, FRotator::ZeroRotator, Params))
 		{
 			Spawned->SetPageEntityId(NextPageId++);
+
+			if (Index == 0 && bGiveStarterTestItem)
+			{
+				const int32 Added = Spawned->GetInventory()
+					? Spawned->GetInventory()->TryAddItem(StarterTestItemId, StarterTestItemQuantity)
+					: 0;
+				if (Added != StarterTestItemQuantity)
+				{
+					UE_LOG(LogTemp, Warning, TEXT("[Population] Starter item grant failed ItemId=%s Requested=%d Added=%d. Check DT_Item and Data Registry."),
+						*StarterTestItemId.ToString(), StarterTestItemQuantity, Added);
+				}
+				else
+				{
+					UE_LOG(LogTemp, Log, TEXT("[Population] Granted starter test item ItemId=%s Quantity=%d to PageId=%d"),
+						*StarterTestItemId.ToString(), Added, Spawned->GetPageEntityId());
+				}
+			}
+
+			if (Index == 0 && bEquipStarterTestTool)
+			{
+				UInventoryComponent* Inventory = Spawned->GetInventory();
+				UEquipmentComponent* Equipment = Spawned->GetEquipment();
+				const int32 AddedTool = Inventory ? Inventory->TryAddItem(StarterTestToolItemId, 1) : 0;
+				const bool bEquipped = AddedTool == 1 && Equipment
+					&& Equipment->EquipFromInventory(StarterTestToolItemId, EPageEquipmentSlot::RightHand);
+				if (!bEquipped)
+				{
+					UE_LOG(LogTemp, Warning, TEXT("[Population] Starter tool equip failed ItemId=%s. Check DT_Item type, compatible slot, and tool tags."),
+						*StarterTestToolItemId.ToString());
+				}
+				else
+				{
+					UE_LOG(LogTemp, Log, TEXT("[Population] Equipped starter tool ItemId=%s to RightHand PageId=%d"),
+						*StarterTestToolItemId.ToString(), Spawned->GetPageEntityId());
+				}
+			}
 		}
 	}
 
@@ -353,6 +390,10 @@ void UWS_Population::WriteToSnapshot_Implementation(FEidosWorldSnapshot& InOutSn
 		{
 			PageSnapshot.InventoryStacks = Inventory->GetStacks();
 		}
+		if (const UEquipmentComponent* Equipment = Page->GetEquipment())
+		{
+			PageSnapshot.EquipmentSlots = Equipment->GetEquippedSlots();
+		}
 		InOutSnapshot.Population.Pages.Add(PageSnapshot);
 	}
 }
@@ -425,6 +466,10 @@ void UWS_Population::ApplySnapshot_Implementation(const FEidosWorldSnapshot& Sna
 		if (UInventoryComponent* Inventory = Page->GetInventory())
 		{
 			Inventory->SetStacks(PageSnapshot.InventoryStacks);
+		}
+		if (UEquipmentComponent* Equipment = Page->GetEquipment())
+		{
+			Equipment->SetEquippedSlots(PageSnapshot.EquipmentSlots);
 		}
 		MatchedPages.Add(Page);
 		NextPageId = FMath::Max(NextPageId, PageSnapshot.PageId + 1);

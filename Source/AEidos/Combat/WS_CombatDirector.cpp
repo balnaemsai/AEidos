@@ -615,7 +615,7 @@ bool UWS_CombatDirector::ExecutePendingFriendlyAction(USimCommandBuffer* Cmd, AP
 			}
 			else if (ADungeonCoreActor* TargetCoreResolved = Cast<ADungeonCoreActor>(TargetActorResolved))
 			{
-				TargetCoreResolved->ApplyCoreDamage(Damage);
+				TargetCoreResolved->ApplyCoreDamage(Damage, Attacker);
 				Attacker->AddActiveSkillXP(SkillId, FMath::Max(5.f, Damage * 0.25f));
 				UE_LOG(LogTemp, Log,
 					TEXT("[Combat] %s used %s on dungeon core for %.1f damage (HP %.1f/%.1f)"),

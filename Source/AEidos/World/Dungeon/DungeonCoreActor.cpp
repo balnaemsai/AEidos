@@ -4,6 +4,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Framework/EidosPlayerController.h"
 #include "Entities/Page/PageCharacter.h"
+#include "Entities/Items/InventoryComponent.h"
 #include "UObject/ConstructorHelpers.h"
 
 ADungeonCoreActor::ADungeonCoreActor()
@@ -36,11 +37,16 @@ ADungeonCoreActor::ADungeonCoreActor()
 	CoreLight->SetRelativeLocation(FVector(0.f, 0.f, 40.f));
 }
 
-void ADungeonCoreActor::ApplyCoreDamage(float DamageAmount)
+void ADungeonCoreActor::ApplyCoreDamage(float DamageAmount, APageCharacter* DamageInstigator)
 {
 	if (bCoreDestroyed || DamageAmount <= 0.f)
 	{
 		return;
+	}
+
+	if (DamageInstigator && DamageInstigator->IsFriendly())
+	{
+		LastDamageInstigator = DamageInstigator;
 	}
 
 	Health = FMath::Max(0.f, Health - DamageAmount);
@@ -82,6 +88,15 @@ void ADungeonCoreActor::DestroyCore()
 	}
 
 	bCoreDestroyed = true;
+	if (APageCharacter* RewardPage = LastDamageInstigator.Get())
+	{
+		if (UInventoryComponent* Inventory = RewardPage->GetInventory())
+		{
+			const int32 Added = Inventory->TryAddItem(CoreShardItemId, CoreShardQuantity);
+			UE_LOG(LogTemp, Log, TEXT("[DungeonCore] Granted core shard ItemId=%s Requested=%d Added=%d PageId=%d"),
+				*CoreShardItemId.ToString(), CoreShardQuantity, Added, RewardPage->GetPageEntityId());
+		}
+	}
 	OnCoreDestroyed.Broadcast(this);
 	Destroy();
 }

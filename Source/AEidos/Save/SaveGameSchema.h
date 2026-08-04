@@ -84,6 +84,9 @@ struct FEidosPageSnapshot
 
 	UPROPERTY(BlueprintReadWrite)
 	TArray<FItemStack> InventoryStacks;
+
+	UPROPERTY(BlueprintReadWrite)
+	TArray<FPageEquipmentSlotState> EquipmentSlots;
 };
 
 USTRUCT(BlueprintType)

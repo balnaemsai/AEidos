@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
 #include "InputActionValue.h"
+#include "World/Interaction/WorldInteractionTypes.h"
 #include "EidosPlayerController.generated.h"
 
 class UCameraModeComponent;
@@ -88,6 +89,24 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Combat")
 	bool RequestCombatEndTurn();
 
+	UFUNCTION(BlueprintPure, Category="World Interaction")
+	AActor* GetContextInteractionTarget() const { return ContextInteractionTarget.Get(); }
+
+	UFUNCTION(BlueprintPure, Category="World Interaction")
+	const TArray<FWorldInteractionOption>& GetContextInteractionOptions() const { return ContextInteractionOptions; }
+
+	UFUNCTION(BlueprintCallable, Category="World Interaction")
+	bool ExecuteContextWorldInteraction(FName InteractionId);
+
+	UFUNCTION(BlueprintCallable, Category="World Interaction")
+	void CloseWorldInteractionRadial();
+
+	UFUNCTION(BlueprintImplementableEvent, Category="World Interaction")
+	void OnWorldInteractionRadialRequested(AActor* TargetActor, const TArray<FWorldInteractionOption>& Options);
+
+	UFUNCTION(BlueprintImplementableEvent, Category="World Interaction")
+	void OnWorldInteractionRadialClosed();
+
 	UFUNCTION(BlueprintImplementableEvent, Category="Combat")
 	void OnSelectedCombatTargetChanged(AActor* NewTarget);
 
@@ -116,6 +135,8 @@ protected:
 
 	UFUNCTION()
 	void OnPrimaryClick(const FInputActionValue& Value);
+	void OnPrimaryClickHeld(const FInputActionValue& Value);
+	void OnSecondaryClick();
 
 	UFUNCTION()
 	void OnInteractPressed();
@@ -187,7 +208,10 @@ protected:
 	void SpawnOrRefreshTerritoryPreview();
 	AActor* FindFocusedCombatActionTarget() const;
 	AActor* FindFocusedInteractActor() const;
+	AActor* FindFocusedWorldInteractionActor() const;
 	bool TryInteractWithActor(AActor* TargetActor);
+	bool OpenWorldInteractionRadial(AActor* TargetActor);
+	bool ExecuteDefaultWorldInteraction(AActor* TargetActor);
 	void SelectAdjacentPage(int32 Direction);
 	void EnsureValidSelectedPage();
 	bool TriggerCombatActionSlot(int32 SlotIndex);
@@ -214,6 +238,14 @@ protected:
 	TWeakObjectPtr<AActor> SelectedCombatTarget;
 
 	UPROPERTY(Transient)
+	TWeakObjectPtr<AActor> ContextInteractionTarget;
+
+	UPROPERTY(Transient)
+	TArray<FWorldInteractionOption> ContextInteractionOptions;
+
+	float LastSecondaryClickTime = -FLT_MAX;
+
+	UPROPERTY(Transient)
 	int32 PendingCombatActionSlot = INDEX_NONE;
 
 	UPROPERTY(Transient)
@@ -234,6 +266,15 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category="Interaction")
 	float InteractForwardDotThreshold = 0.55f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Interaction", meta=(ClampMin="0.05", ClampMax="1.0"))
+	float ContextInteractionDoubleClickSeconds = 0.30f;
+
+	// The first click acts immediately; holding repeats only non-combat world interactions.
+	UPROPERTY(EditDefaultsOnly, Category="Interaction", meta=(ClampMin="0.05", ClampMax="2.0"))
+	float WorldInteractionRepeatInterval = 0.35f;
+
+	float LastWorldInteractionTime = -FLT_MAX;
 
 	UPROPERTY(Transient)
 	bool bFirstPersonUIFocusMode = false;

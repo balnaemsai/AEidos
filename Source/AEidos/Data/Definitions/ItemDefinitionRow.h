@@ -40,6 +40,14 @@ struct FItemDefinitionRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TSoftClassPtr<AActor> WorldPickupClass;
 
+	// Equipment items may occupy one of these Page slots. Empty means the item cannot be equipped.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Equipment")
+	TArray<EPageEquipmentSlot> CompatibleEquipmentSlots;
+
+	// Tags understood by world interactions, e.g. Tool.Pickaxe or Tool.Axe.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Equipment")
+	TArray<FName> ToolInteractionTags;
+
 	// Non-None items turn into this warehouse resource when a Page returns.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FName SettlementResourceId = NAME_None;

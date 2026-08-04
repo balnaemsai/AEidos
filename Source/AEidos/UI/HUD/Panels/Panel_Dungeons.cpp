@@ -12,7 +12,7 @@
 
 namespace
 {
-	FLinearColor UiColor(const TCHAR* Hex, float Alpha = 1.f)
+	FLinearColor DungeonPanelUiColor(const TCHAR* Hex, float Alpha = 1.f)
 	{
 		FLinearColor Color = FLinearColor::FromSRGBColor(FColor::FromHex(Hex));
 		Color.A = Alpha;
@@ -41,16 +41,16 @@ namespace
 	{
 		if (Portal.bCleared || Portal.Status == EPortalStatus::Cleared)
 		{
-			return UiColor(TEXT("859188"), 0.85f);
+			return DungeonPanelUiColor(TEXT("859188"), 0.85f);
 		}
 
 		switch (Portal.Status)
 		{
-		case EPortalStatus::Available: return UiColor(TEXT("AAB0B2"), 0.9f);
-		case EPortalStatus::Entered: return UiColor(TEXT("B8B1A2"), 0.9f);
-		case EPortalStatus::RaidTriggered: return UiColor(TEXT("9C8380"), 0.9f);
-		case EPortalStatus::Spawning: return UiColor(TEXT("6E7478"), 0.9f);
-		default: return UiColor(TEXT("70767A"), 0.85f);
+		case EPortalStatus::Available: return DungeonPanelUiColor(TEXT("AAB0B2"), 0.9f);
+		case EPortalStatus::Entered: return DungeonPanelUiColor(TEXT("B8B1A2"), 0.9f);
+		case EPortalStatus::RaidTriggered: return DungeonPanelUiColor(TEXT("9C8380"), 0.9f);
+		case EPortalStatus::Spawning: return DungeonPanelUiColor(TEXT("6E7478"), 0.9f);
+		default: return DungeonPanelUiColor(TEXT("70767A"), 0.85f);
 		}
 	}
 
