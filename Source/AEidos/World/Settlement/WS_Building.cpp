@@ -13,6 +13,7 @@
 #include "World/Settlement/EidosAccessInterface.h"
 #include "World/Settlement/WS_Economy.h"
 #include "World/Settlement/WS_Work.h"
+#include "World/Settlement/WS_Research.h"
 #include "World/Settlement/Building/BuildingActorBase.h"
 #include "World/Settlement/Building/ConstructionSiteActor.h"
 
@@ -91,6 +92,25 @@ void UWS_Building::GetCompletedBuildingIds(TArray<FName>& OutBuildingIds) const
 	}
 }
 
+int32 UWS_Building::GetCompletedPageCapacity() const
+{
+	int32 TotalCapacity = 0;
+	for (const FConstructionSiteState& Site : ConstructionSites)
+	{
+		if (Site.State != EConstructionSiteLifecycle::Completed)
+		{
+			continue;
+		}
+
+		if (const FBuildingDefinitionRow* Definition = FindBuildingDef(Site.BuildingId))
+		{
+			TotalCapacity += FMath::Max(0, Definition->PageCapacity);
+		}
+	}
+
+	return TotalCapacity;
+}
+
 const FBuildingDefinitionRow* UWS_Building::FindBuildingDef(FName BuildingId) const
 {
 	return BuildingDefs.Find(BuildingId);
@@ -153,6 +173,13 @@ bool UWS_Building::ValidatePlacement(FName BuildingId, FVector Location, float Y
 	if (!Def)
 	{
 		OutReason = TEXT("Invalid BuildingId");
+		return false;
+	}
+
+	if (const UWS_Research* Research = GetWorld() ? GetWorld()->GetSubsystem<UWS_Research>() : nullptr;
+		!Research->HasAllCompletedResearch(Def->RequiredResearchIds))
+	{
+		OutReason = TEXT("Required research has not been completed");
 		return false;
 	}
 

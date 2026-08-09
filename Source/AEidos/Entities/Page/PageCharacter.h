@@ -29,7 +29,8 @@ UENUM(BlueprintType)
 enum class EPageFaction : uint8
 {
 	Friendly,
-	Hostile
+	Hostile,
+	Captive
 };
 
 UENUM(BlueprintType)
@@ -148,6 +149,9 @@ public:
 	bool IsHostile() const { return Faction == EPageFaction::Hostile; }
 
 	UFUNCTION(BlueprintPure, Category="Page|Faction")
+	bool IsCaptive() const { return Faction == EPageFaction::Captive; }
+
+	UFUNCTION(BlueprintPure, Category="Page|Faction")
 	bool IsHostileTo(const APageCharacter* OtherPage) const;
 
 	UFUNCTION(BlueprintPure, Category="Page|Dungeon")
@@ -200,6 +204,12 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Page|Inventory")
 	void SetInventorySummary(float InCurrentVolume, float InMaxVolume, float InCurrentWeight, float InMaxWeight);
+
+	UFUNCTION(BlueprintCallable, Category="Page|Settlement")
+	void SetSettlementOverCapacity(bool bNewOverCapacity);
+
+	UFUNCTION(BlueprintPure, Category="Page|Settlement")
+	bool IsSettlementOverCapacity() const { return bSettlementOverCapacity; }
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page")
 	FPageJobState CurrentJobState;
@@ -302,6 +312,12 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Page|Inventory|Overload", meta=(ClampMin="0.01", ClampMax="1.0"))
 	float MinimumOverloadSpeedMultiplier = 0.10f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Settlement")
+	bool bSettlementOverCapacity = false;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Page|Settlement", meta=(ClampMin="0.01", ClampMax="1.0"))
+	float OverCapacityMovementMultiplier = 0.75f;
 
 	UFUNCTION()
 	void HandleInventoryChanged();

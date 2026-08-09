@@ -22,6 +22,7 @@
 #include "World/Settlement/WS_Economy.h"
 #include "World/Settlement/WS_Sustenance.h"
 #include "World/Settlement/WS_Building.h"
+#include "World/Settlement/WS_Research.h"
 #include "World/Settlement/WS_Population.h"
 
 // 로그 카테고리(있으면 교체)
@@ -163,6 +164,10 @@ void UWS_WorldBootstrap::ContinueBootstrapAfterDataRegistryReady(bool bOk)
 	if (UWS_Work* WorkWS = GetWorld()->GetSubsystem<UWS_Work>())
 	{
 		WorkWS->LoadWorkDefs();
+	}
+	if (UWS_Research* ResearchWS = GetWorld()->GetSubsystem<UWS_Research>())
+	{
+		ResearchWS->LoadResearchDefs();
 	}
 
 	if (!bOk)

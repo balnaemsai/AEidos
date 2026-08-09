@@ -25,6 +25,25 @@ enum class EPageEquipmentSlot : uint8
 	Feet
 };
 
+/** Commands that an item may expose from an inventory context menu. */
+UENUM(BlueprintType)
+enum class EInventoryItemActionType : uint8
+{
+	MoveToOtherInventory,
+	Drop,
+	Use,
+	Place,
+	Equip
+};
+
+/** Built-in effects that an inventory item's Use command can apply without a Blueprint. */
+UENUM(BlueprintType)
+enum class EItemUseEffectType : uint8
+{
+	None,
+	RestoreHealth
+};
+
 USTRUCT(BlueprintType)
 struct FPageEquipmentSlotState
 {

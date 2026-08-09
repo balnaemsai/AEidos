@@ -41,6 +41,29 @@ void UStatsComponent::ApplyDamage(float DamageAmount)
 	OnStatsChanged.Broadcast();
 }
 
+float UStatsComponent::RestoreHealth(float RequestedAmount)
+{
+	if (RequestedAmount <= 0.f || Health <= 0.f || Health >= MaxHealth)
+	{
+		return 0.f;
+	}
+
+	const float PreviousHealth = Health;
+	Health = FMath::Min(MaxHealth, Health + RequestedAmount);
+	const float RestoredAmount = Health - PreviousHealth;
+	if (RestoredAmount > 0.f)
+	{
+		OnStatsChanged.Broadcast();
+	}
+	return RestoredAmount;
+}
+
+void UStatsComponent::Revive(float NewHealth)
+{
+	Health = FMath::Clamp(NewHealth, 1.f, FMath::Max(1.f, MaxHealth));
+	OnStatsChanged.Broadcast();
+}
+
 void UStatsComponent::RestoreToFull()
 {
 	Health = MaxHealth;

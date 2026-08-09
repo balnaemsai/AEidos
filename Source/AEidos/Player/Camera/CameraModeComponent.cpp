@@ -150,11 +150,10 @@ void UCameraModeComponent::InitializeForController(AEidosPlayerController* InPC)
 
 void UCameraModeComponent::SetSelectedPage(APageCharacter* NewPage)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[CamMode] SetSelectedPage: New=%s  Old=%s"),
-		*GetNameSafe(NewPage),
-		*GetNameSafe(SelectedPage.Get()));
-
-	UE_LOG(LogTemp, Warning, TEXT("[CamMode] SetSelectedPage this=%p"), this);
+	if (SelectedPage.Get() == NewPage)
+	{
+		return;
+	}
 
 	SelectedPage = NewPage;
 
@@ -202,7 +201,6 @@ void UCameraModeComponent::ToggleViewMode()
 
 void UCameraModeComponent::ToggleControlMode()
 {
-	UE_LOG(LogTemp, Display, TEXT("ToggleControlMode"));
 	if (ControlMode == ECameraControlMode::FollowPage)
 	{
 		ControlMode = ECameraControlMode::FreeCam;
@@ -340,8 +338,6 @@ void UCameraModeComponent::EnterThirdPerson(bool bForceApply)
 	USpringArmComponent* Arm = ResolveActiveThirdPersonArm();
 	USceneComponent* Pivot = ResolveActiveThirdPersonPivot();
 
-	UE_LOG(LogTemp, Warning, TEXT("[EnterThirdPerson] Arm=%s Pivot=%s"),
-		*GetNameSafe(Arm), *GetNameSafe(Pivot));
 	if (!Arm || !Pivot) return;
 
 	Arm->bUsePawnControlRotation = false;

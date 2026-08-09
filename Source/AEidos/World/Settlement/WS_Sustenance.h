@@ -9,32 +9,15 @@
 #include "WS_Sustenance.generated.h"
 
 class UWS_Population;
+class UWS_ItemStorage;
 class USimCommandBuffer;
-
-USTRUCT(BlueprintType)
-struct FMealBatchRecord
-{
-	GENERATED_BODY()
-
-	// A stack-like quantity of prepared meals contributed at the same quality band.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Meal")
-	float MealUnits = 0.f;
-
-	// Final cooked meal quality after cook skill + ingredient quality/value are resolved.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Meal")
-	float MealQuality = 0.f;
-
-	// Optional future hook for recipe/output tracking.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Meal")
-	FName SourceRecipeId;
-};
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSustenanceChanged);
 
 /**
- * Settlement-wide meal storage and average quality model.
- * This intentionally does not track who ate what yet.
- * Cooking jobs will convert ingredient inputs into prepared meal units and register them here.
+ * Settlement-wide meal service. Prepared meal items in the warehouse are the
+ * single source of truth; this subsystem serves them periodically and records
+ * only the resulting quality and shortage state.
  */
 UCLASS()
 class AEIDOS_API UWS_Sustenance : public UWorldSubsystem, public ISimSystem, public ISaveGameParticipant
@@ -54,12 +37,6 @@ public:
 	virtual void WriteToSnapshot_Implementation(FEidosWorldSnapshot& InOutSnapshot) const override;
 	virtual void ApplySnapshot_Implementation(const FEidosWorldSnapshot& Snapshot) override;
 
-	UFUNCTION(BlueprintCallable, Category="Sustenance")
-	void RegisterProducedMeals(float MealUnits, float MealQuality, FName SourceRecipeId = NAME_None);
-
-	UFUNCTION(BlueprintCallable, Category="Sustenance")
-	void ClearMealStorage();
-
 	UFUNCTION(BlueprintPure, Category="Sustenance")
 	float GetStoredMealUnits() const { return StoredMealUnits; }
 
@@ -75,12 +52,15 @@ public:
 	UFUNCTION(BlueprintPure, Category="Sustenance")
 	int32 GetLastKnownPopulation() const { return LastKnownPopulation; }
 
+	/** 0..1 portion of the previous settlement meal demand that was met. */
 	UFUNCTION(BlueprintPure, Category="Sustenance")
-	const TArray<FMealBatchRecord>& GetMealBatches() const { return MealBatches; }
+	float GetLastMealCoverage() const { return LastMealCoverage; }
 
-	// Future-facing helper for UI/tooling: what would the weighted average be after adding a new cooked batch?
 	UFUNCTION(BlueprintPure, Category="Sustenance")
-	float PredictAverageMealQualityAfterAdd(float MealUnits, float MealQuality) const;
+	bool HasFoodShortage() const { return bFoodShortage; }
+
+	UFUNCTION(BlueprintPure, Category="Sustenance")
+	float GetSecondsUntilNextMealService() const { return FMath::Max(0.f, MealServiceIntervalSeconds - MealServiceElapsedSeconds); }
 
 	UPROPERTY(BlueprintAssignable, Category="Sustenance")
 	FOnSustenanceChanged OnSustenanceChanged;
@@ -89,12 +69,16 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Sustenance|Tuning", meta=(ClampMin="0.0"))
 	float DailyMealDemandPerPage = 1.f;
 
+	/** One game-day meal service in the current prototype. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Sustenance|Tuning", meta=(ClampMin="1.0"))
+	float MealServiceIntervalSeconds = 120.f;
+
 private:
 	float ComputeWeightedAverage(float InStoredUnits, float InStoredQualityTotal) const;
 	void RefreshDemandFromPopulation();
-
-	UPROPERTY()
-	TArray<FMealBatchRecord> MealBatches;
+	void RefreshMealStorageFromWarehouse();
+	void ServeSettlementMeal();
+	const struct FItemDefinitionRow* FindItemDefinition(FName ItemId) const;
 
 	UPROPERTY()
 	float StoredMealUnits = 0.f;
@@ -110,6 +94,15 @@ private:
 
 	UPROPERTY()
 	int32 LastKnownPopulation = 0;
+
+	UPROPERTY()
+	float LastMealCoverage = 1.f;
+
+	UPROPERTY()
+	bool bFoodShortage = false;
+
+	UPROPERTY()
+	float MealServiceElapsedSeconds = 0.f;
 
 	bool bDirty = false;
 };

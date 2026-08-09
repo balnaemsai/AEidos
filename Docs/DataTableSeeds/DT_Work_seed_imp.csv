@@ -7,3 +7,4 @@ Construct_EP_Altar,Construct_EP_Altar,Construct_EP_Altar,10,1,1,Build,(),(),Cons
 Construct_Small_Storage,Construct_Small_Storage,Construct_Small_Storage,8,1,1,Build,(),(),Construction,0.82,1.02
 Gather_Wood,Gather_Wood,Gather_Wood,6,1,1,Gather,(),"((ResourceId=""Wood"",Amount=12))",,0.74,1.02
 Gather_Stone,Gather_Stone,Gather_Stone,4,1,1,Gather,(),"((ResourceId=""Stone"",Amount=10))",,0.66,1.02
+Craft_Ration,Craft_Ration,Craft Ration,5,1,1,None,"((ResourceId=""Food"",Amount=5))","((ItemId=""Ration"",Amount=1))",Cooking,0.8,1

@@ -55,4 +55,8 @@ struct FSkillDefinitionRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat")
 	float CombatDamageAmount = 20.f;
+
+	// A capture skill turns a hostile Page reaching 0 HP into a captive instead of destroying it.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat")
+	bool bCapturesTargetOnDefeat = false;
 };

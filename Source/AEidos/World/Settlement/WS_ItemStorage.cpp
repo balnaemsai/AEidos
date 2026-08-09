@@ -135,6 +135,44 @@ float UWS_ItemStorage::GetCurrentVolume() const
 	return Result;
 }
 
+int32 UWS_ItemStorage::GetStoredItemAmount(FName ItemId) const
+{
+	int32 Total = 0;
+	for (const FItemStack& Stack : StoredItems)
+	{
+		if (Stack.ItemId == ItemId)
+		{
+			Total += Stack.Quantity;
+		}
+	}
+	return Total;
+}
+
+bool UWS_ItemStorage::CanStoreItemStacks(const TArray<FItemStack>& ItemStacks) const
+{
+	float RequiredWeight = 0.f;
+	float RequiredVolume = 0.f;
+	for (const FItemStack& Stack : ItemStacks)
+	{
+		if (Stack.ItemId.IsNone() || Stack.Quantity <= 0)
+		{
+			continue;
+		}
+
+		const FItemDefinitionRow* Def = FindItemDefinition(Stack.ItemId);
+		if (!Def)
+		{
+			return false;
+		}
+
+		RequiredWeight += Def->UnitWeight * Stack.Quantity;
+		RequiredVolume += Def->UnitVolume * Stack.Quantity;
+	}
+
+	return RequiredWeight <= FMath::Max(0.f, GetTotalWeightCapacity() - GetCurrentWeight())
+		&& RequiredVolume <= FMath::Max(0.f, GetTotalVolumeCapacity() - GetCurrentVolume());
+}
+
 int32 UWS_ItemStorage::GetMaxResourceAmountThatFits(FName ResourceId, int32 RequestedAmount) const
 {
 	const FResourceDefinitionRow* Def = FindResourceDefinition(ResourceId);
@@ -249,6 +287,33 @@ void UWS_ItemStorage::DepositPageInventory(APageCharacter* Page)
 		{
 			float IgnoredQuality = 0.f;
 			Inventory->TryRemoveItem(Stack.ItemId, Accepted, IgnoredQuality);
+		}
+	}
+}
+
+void UWS_ItemStorage::ConvertReturnResources(APageCharacter* Page)
+{
+	UInventoryComponent* Inventory = Page ? Page->GetInventory() : nullptr;
+	UWS_Economy* Economy = GetWorld() ? GetWorld()->GetSubsystem<UWS_Economy>() : nullptr;
+	if (!Inventory || !Economy)
+	{
+		return;
+	}
+
+	const TArray<FItemStack> CarriedStacks = Inventory->GetStacks();
+	for (const FItemStack& Stack : CarriedStacks)
+	{
+		const FItemDefinitionRow* Def = FindItemDefinition(Stack.ItemId);
+		if (!Def || !Def->bConvertOnReturn || Def->SettlementResourceId.IsNone())
+		{
+			continue;
+		}
+
+		const int32 Converted = Economy->TryAddAmount(Def->SettlementResourceId, Stack.Quantity);
+		if (Converted > 0)
+		{
+			float IgnoredQuality = 0.f;
+			Inventory->TryRemoveItem(Stack.ItemId, Converted, IgnoredQuality);
 		}
 	}
 }

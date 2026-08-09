@@ -1,0 +1,5 @@
+Name,BlockId,DisplayName,MaxIntegrity,bDestroyWhenDepleted
+StoneChunk,StoneChunk,Stone Chunk,3,TRUE
+WoodLog,WoodLog,Wood Log,4,TRUE
+DoorWood,DoorWood,Wooden Door,999,FALSE
+SwitchLever,SwitchLever,Lever,999,FALSE

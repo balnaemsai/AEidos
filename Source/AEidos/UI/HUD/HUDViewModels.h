@@ -95,6 +95,9 @@ struct FPageSummaryView
 	bool bIsDead = false;
 
 	UPROPERTY(BlueprintReadOnly)
+	bool bIsCaptive = false;
+
+	UPROPERTY(BlueprintReadOnly)
 	float Health = 0.f;
 
 	UPROPERTY(BlueprintReadOnly)

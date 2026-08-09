@@ -48,6 +48,15 @@ struct FEidosEconomySnapshot
 };
 
 USTRUCT(BlueprintType)
+struct FEidosResearchSnapshot
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadWrite)
+	TArray<FName> CompletedResearchIds;
+};
+
+USTRUCT(BlueprintType)
 struct FEidosSustenanceSnapshot
 {
 	GENERATED_BODY()
@@ -66,6 +75,15 @@ struct FEidosSustenanceSnapshot
 
 	UPROPERTY(BlueprintReadWrite)
 	int32 LastKnownPopulation = 0;
+
+	UPROPERTY(BlueprintReadWrite)
+	float LastMealCoverage = 1.f;
+
+	UPROPERTY(BlueprintReadWrite)
+	bool bFoodShortage = false;
+
+	UPROPERTY(BlueprintReadWrite)
+	float MealServiceElapsedSeconds = 0.f;
 };
 
 USTRUCT(BlueprintType)
@@ -181,6 +199,9 @@ public:
 
 	UPROPERTY(BlueprintReadWrite)
 	FEidosWorkSnapshot Work;
+
+	UPROPERTY(BlueprintReadWrite)
+	FEidosResearchSnapshot Research;
 
 	UPROPERTY(BlueprintReadWrite)
 	TMap<FName, FString> KV;

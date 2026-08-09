@@ -11,6 +11,9 @@
 #include "Data/Definitions/BuildingDefinitionRow.h"
 #include "Data/Definitions/ResourceDefinitionRow.h"
 #include "Data/Definitions/ItemDefinitionRow.h"
+#include "Data/Definitions/BlockDefinitionRow.h"
+#include "Data/Definitions/BlockInteractionDefinitionRow.h"
+#include "Data/Definitions/ResearchDefinitionRow.h"
 
 DEFINE_LOG_CATEGORY(LogDataRegistry);
 
@@ -389,6 +392,19 @@ const FPortalDefinitionRow* UGIS_DataRegistry::GetPortalDef(FName PortalDefId) c
 	return Table->FindRow<FPortalDefinitionRow>(PortalDefId, TEXT("GetPortalDef"));
 }
 
+UDataTable* UGIS_DataRegistry::GetResearchTable() const
+{
+	return FindDataTableByName(TEXT("DT_Research"));
+}
+
+const FResearchDefinitionRow* UGIS_DataRegistry::GetResearchDef(FName ResearchId) const
+{
+	UDataTable* ResearchTable = GetResearchTable();
+	return ResearchTable && !ResearchId.IsNone()
+		? ResearchTable->FindRow<FResearchDefinitionRow>(ResearchId, TEXT("GetResearchDef"))
+		: nullptr;
+}
+
 UDataTable* UGIS_DataRegistry::GetItemTable() const
 {
 	return FindDataTableByName(TEXT("DT_Item"));
@@ -409,6 +425,45 @@ TArray<FName> UGIS_DataRegistry::GetAllItemIds() const
 {
 	UDataTable* ItemTable = GetItemTable();
 	return ItemTable ? ItemTable->GetRowNames() : TArray<FName>{};
+}
+
+UDataTable* UGIS_DataRegistry::GetBlockTable() const
+{
+	return FindDataTableByName(TEXT("DT_Block"));
+}
+
+const FBlockDefinitionRow* UGIS_DataRegistry::GetBlockDef(FName BlockId) const
+{
+	UDataTable* BlockTable = GetBlockTable();
+	return BlockTable && !BlockId.IsNone()
+		? BlockTable->FindRow<FBlockDefinitionRow>(BlockId, TEXT("GetBlockDef"))
+		: nullptr;
+}
+
+UDataTable* UGIS_DataRegistry::GetBlockInteractionTable() const
+{
+	return FindDataTableByName(TEXT("DT_BlockInteraction"));
+}
+
+void UGIS_DataRegistry::GetBlockInteractions(FName BlockId,
+	TArray<const FBlockInteractionDefinitionRow*>& OutInteractions) const
+{
+	OutInteractions.Reset();
+	UDataTable* InteractionTable = GetBlockInteractionTable();
+	if (!InteractionTable || BlockId.IsNone())
+	{
+		return;
+	}
+
+	for (const TPair<FName, uint8*>& Pair : InteractionTable->GetRowMap())
+	{
+		const FBlockInteractionDefinitionRow* Interaction =
+			reinterpret_cast<const FBlockInteractionDefinitionRow*>(Pair.Value);
+		if (Interaction && Interaction->BlockId == BlockId && !Interaction->InteractionId.IsNone())
+		{
+			OutInteractions.Add(Interaction);
+		}
+	}
 }
 
 TArray<FName> UGIS_DataRegistry::GetAllPortalDefIds() const

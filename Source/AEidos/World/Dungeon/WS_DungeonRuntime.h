@@ -90,6 +90,8 @@ private:
 	void SpawnDungeonBuildings(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
 	void SpawnDungeonCore(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
 	void SpawnDungeonEnemies(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
+	void SpawnDungeonWorldBlocks(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
+	void SpawnDungeonWorldItems(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
 	void StartDungeonCollapse(const FTransform& CoreTransform, ULevel* LoadedLevel);
 	void DestroyPagesStillInDungeon();
 	void EndActiveDungeonSession();

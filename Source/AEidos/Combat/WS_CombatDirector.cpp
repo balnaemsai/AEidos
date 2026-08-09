@@ -10,6 +10,7 @@
 #include "Engine/GameInstance.h"
 #include "Entities/Page/PageCharacter.h"
 #include "Entities/Page/Components/StatsComponent.h"
+#include "World/Settlement/WS_Population.h"
 #include "Framework/EidosPlayerController.h"
 #include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
@@ -36,7 +37,7 @@ TArray<APageCharacter*> UWS_CombatDirector::GatherLivingPages() const
 		}
 
 		const UStatsComponent* Stats = Page->GetStats();
-		if (!Stats || Stats->IsDead())
+		if (!Stats || Stats->IsDead() || Page->IsCaptive())
 		{
 			continue;
 		}
@@ -68,7 +69,31 @@ ADungeonCoreActor* UWS_CombatDirector::FindLivingDungeonCore() const
 
 bool UWS_CombatDirector::HasDungeonCoreObjective() const
 {
-	return ActiveEncounter.bCombatSpaceIsDungeon && FindLivingDungeonCore() != nullptr;
+	if (!ActiveEncounter.bCombatSpaceIsDungeon)
+	{
+		return false;
+	}
+
+	const ADungeonCoreActor* Core = FindLivingDungeonCore();
+	if (!Core)
+	{
+		return false;
+	}
+
+	// A distant core must not keep a cleared local encounter in combat.
+	for (const TWeakObjectPtr<APageCharacter>& WeakCombatant : ActiveEncounter.Combatants)
+	{
+		if (const APageCharacter* Combatant = WeakCombatant.Get())
+		{
+			if (Combatant->IsFriendly()
+				&& FVector::DistSquared(Combatant->GetActorLocation(), Core->GetActorLocation()) <= FMath::Square(CombatJoinRangeCm))
+			{
+				return true;
+			}
+		}
+	}
+
+	return false;
 }
 
 APageCharacter* UWS_CombatDirector::FindClosestHostileTarget(APageCharacter* Source, const TArray<APageCharacter*>& Candidates, float MaxRangeCm) const
@@ -342,7 +367,7 @@ void UWS_CombatDirector::RefreshEncounterState()
 			{
 				++FriendlyCount;
 			}
-			else
+			else if (Combatant->IsHostile())
 			{
 				++HostileCount;
 			}
@@ -366,6 +391,30 @@ void UWS_CombatDirector::RefreshEncounterState()
 	{
 		EndEncounter(TEXT("NoActiveCombatant"));
 	}
+}
+
+void UWS_CombatDirector::NotifyCombatantDefeated(APageCharacter* DefeatedPage)
+{
+	if (!IsCombatActive() || !DefeatedPage)
+	{
+		return;
+	}
+
+	ActiveEncounter.Combatants.RemoveAll([DefeatedPage](const TWeakObjectPtr<APageCharacter>& Combatant)
+	{
+		return !Combatant.IsValid() || Combatant.Get() == DefeatedPage;
+	});
+	CombatantActionPoints.Remove(DefeatedPage);
+	CombatantInitiative.Remove(DefeatedPage);
+
+	if (ActiveEncounter.Combatants.Num() == 0)
+	{
+		EndEncounter(TEXT("NoLivingCombatants"));
+		return;
+	}
+
+	ActiveEncounter.ActiveTurnIndex %= ActiveEncounter.Combatants.Num();
+	RefreshEncounterState();
 }
 
 void UWS_CombatDirector::UpdateCombatantTurnFlags(APageCharacter* ActivePage)
@@ -579,8 +628,9 @@ bool UWS_CombatDirector::ExecutePendingFriendlyAction(USimCommandBuffer* Cmd, AP
 	const TWeakObjectPtr<AActor> WeakTarget = TargetActor;
 	const float Damage = SkillDef->CombatDamageAmount * ActivePage->GetSkillMultiplier(Request.ActionId);
 	const FName SkillId = Request.ActionId;
+	const bool bCaptureOnDefeat = SkillDef->bCapturesTargetOnDefeat;
 
-	Cmd->Enqueue([WeakAttacker, WeakTarget, Damage, SkillId]()
+	Cmd->Enqueue([WeakAttacker, WeakTarget, Damage, SkillId, bCaptureOnDefeat]()
 	{
 		APageCharacter* Attacker = WeakAttacker.Get();
 		if (!Attacker)
@@ -608,8 +658,28 @@ bool UWS_CombatDirector::ExecutePendingFriendlyAction(USimCommandBuffer* Cmd, AP
 
 					if (TargetStats->IsDead())
 					{
-						UE_LOG(LogTemp, Warning, TEXT("[Combat] %s died"), *GetNameSafe(Target));
-						Target->Destroy();
+						UWorld* AttackerWorld = Attacker->GetWorld();
+						UWS_Population* Population = AttackerWorld
+							? AttackerWorld->GetSubsystem<UWS_Population>()
+							: nullptr;
+						const bool bCaptured = bCaptureOnDefeat && Target->IsHostile()
+							&& Population && Population->CaptureHostilePage(Target);
+						if (bCaptured)
+						{
+							UE_LOG(LogTemp, Log, TEXT("[Combat] %s subdued %s"), *GetNameSafe(Attacker), *GetNameSafe(Target));
+						}
+						else
+						{
+							UE_LOG(LogTemp, Warning, TEXT("[Combat] %s died"), *GetNameSafe(Target));
+						}
+						if (UWS_CombatDirector* Combat = AttackerWorld ? AttackerWorld->GetSubsystem<UWS_CombatDirector>() : nullptr)
+						{
+							Combat->NotifyCombatantDefeated(Target);
+						}
+						if (!bCaptured)
+						{
+							Target->Destroy();
+						}
 					}
 				}
 			}
@@ -633,7 +703,7 @@ bool UWS_CombatDirector::ExecutePendingFriendlyAction(USimCommandBuffer* Cmd, AP
 
 bool UWS_CombatDirector::ExecuteEnemyTurnStep(USimCommandBuffer* Cmd, APageCharacter* ActivePage, const TArray<APageCharacter*>& Pages)
 {
-	if (!Cmd || !ActivePage || ActivePage->IsFriendly())
+	if (!Cmd || !ActivePage || !ActivePage->IsHostile())
 	{
 		return false;
 	}
@@ -681,6 +751,10 @@ bool UWS_CombatDirector::ExecuteEnemyTurnStep(USimCommandBuffer* Cmd, APageChara
 				if (TargetStats->IsDead())
 				{
 					UE_LOG(LogTemp, Warning, TEXT("[Combat] %s died"), *GetNameSafe(Target));
+					if (UWS_CombatDirector* Combat = Attacker->GetWorld()->GetSubsystem<UWS_CombatDirector>())
+					{
+						Combat->NotifyCombatantDefeated(Target);
+					}
 					Target->Destroy();
 				}
 			}

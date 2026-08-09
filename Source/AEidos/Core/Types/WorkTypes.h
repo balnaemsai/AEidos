@@ -25,7 +25,9 @@ struct FWorkCost
 {
 	GENERATED_BODY()
 
+	/** Set either ResourceId or ItemId. A row with both fields set is invalid. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FName ResourceId;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FName ItemId;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) int32 Amount = 0;
 };
 
@@ -34,7 +36,9 @@ struct FWorkReward
 {
 	GENERATED_BODY()
 
+	/** Set either ResourceId or ItemId. Item rewards are deposited into settlement storage. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) FName ResourceId;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FName ItemId;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) int32 Amount = 0;
 };
 
@@ -78,6 +82,28 @@ struct FWorkInstance
 
 	// 참여자(페이지 ID)
 	UPROPERTY(BlueprintReadWrite) TArray<int32> Workers;
+};
+
+USTRUCT(BlueprintType)
+struct FWorkOrderView
+{
+	GENERATED_BODY()
+	UPROPERTY(BlueprintReadOnly) FName WorkId;
+	UPROPERTY(BlueprintReadOnly) FText DisplayName;
+	UPROPERTY(BlueprintReadOnly) TArray<FWorkCost> Costs;
+	UPROPERTY(BlueprintReadOnly) TArray<FWorkReward> Rewards;
+	UPROPERTY(BlueprintReadOnly) int32 QueuedCount = 0;
+	UPROPERTY(BlueprintReadOnly) int32 ActiveCount = 0;
+	/** Number of Pages currently assigned across active instances of this work type. */
+	UPROPERTY(BlueprintReadOnly) int32 ActiveWorkerCount = 0;
+	/** Total worker capacity across active instances of this work type. */
+	UPROPERTY(BlueprintReadOnly) int32 ActiveMaxWorkers = 0;
+	UPROPERTY(BlueprintReadOnly) float ActiveProgress = 0.f;
+	UPROPERTY(BlueprintReadOnly) float ActiveTotalWork = 0.f;
+	UPROPERTY(BlueprintReadOnly) bool bCanQueue = false;
+	/** The most recent outstanding player request for this recipe, whether queued or active. */
+	UPROPERTY(BlueprintReadOnly) int32 CancelRequestId = INDEX_NONE;
+	UPROPERTY(BlueprintReadOnly) bool bCanCancel = false;
 };
 
 USTRUCT(BlueprintType)

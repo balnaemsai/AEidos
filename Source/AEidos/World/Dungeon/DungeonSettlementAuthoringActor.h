@@ -40,6 +40,13 @@ protected:
 	bool bCaptureMarkers = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon")
+	bool bCaptureWorldBlocks = true;
+
+	/** Legacy toggle retained for existing authoring actors. New captures use bCaptureWorldBlocks. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon", meta=(DeprecatedProperty, DeprecationMessage="Use Capture World Blocks."))
+	bool bCaptureWorldItemBlocks = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon")
 	bool bRestrictCaptureToSameLevel = false;
 
 private:

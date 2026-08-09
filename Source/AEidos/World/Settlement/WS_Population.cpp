@@ -11,6 +11,8 @@
 #include "Entities/Items/InventoryComponent.h"
 #include "Entities/Items/EquipmentComponent.h"
 #include "Entities/Page/Components/StatsComponent.h"
+#include "World/Settlement/WS_Building.h"
+#include "GameFramework/CharacterMovementComponent.h"
 
 void UWS_Population::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -108,6 +110,111 @@ void UWS_Population::RebuildCacheIfNeeded()
 	bCacheDirty = false;
 }
 
+void UWS_Population::MarkCacheDirty()
+{
+	bCacheDirty = true;
+}
+
+const TArray<TWeakObjectPtr<APageCharacter>>& UWS_Population::GetOwnedPages() const
+{
+	// Faction changes (capture/recruit) must be visible before the next simulation tick.
+	const_cast<UWS_Population*>(this)->RebuildCacheIfNeeded();
+	return CachedPages;
+}
+
+void UWS_Population::GetCaptivePages(TArray<APageCharacter*>& OutCaptives) const
+{
+	OutCaptives.Reset();
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	for (TActorIterator<APageCharacter> It(World); It; ++It)
+	{
+		if (It->IsCaptive())
+		{
+			OutCaptives.Add(*It);
+		}
+	}
+}
+
+APageCharacter* UWS_Population::FindCaptiveById(int32 PageId) const
+{
+	TArray<APageCharacter*> Captives;
+	GetCaptivePages(Captives);
+	APageCharacter* const* Found = Captives.FindByPredicate([PageId](const APageCharacter* Page)
+	{
+		return Page && Page->GetPageEntityId() == PageId;
+	});
+	return Found ? *Found : nullptr;
+}
+
+bool UWS_Population::CaptureHostilePage(APageCharacter* TargetPage)
+{
+	if (!TargetPage || !TargetPage->IsHostile())
+	{
+		return false;
+	}
+
+	UStatsComponent* Stats = TargetPage->GetStats();
+	if (!Stats)
+	{
+		return false;
+	}
+
+	EnsurePageEntityId(TargetPage);
+	Stats->Revive(1.f);
+	TargetPage->SetFaction(EPageFaction::Captive);
+	TargetPage->CurrentJobState = FPageJobState{};
+	TargetPage->SetTurnCombatState(false, false);
+	if (UCharacterMovementComponent* Movement = TargetPage->GetCharacterMovement())
+	{
+		Movement->StopMovementImmediately();
+		Movement->DisableMovement();
+	}
+
+	MarkCacheDirty();
+	UE_LOG(LogTemp, Log, TEXT("[Population] Captured Page=%s Id=%d"), *GetNameSafe(TargetPage), TargetPage->GetPageEntityId());
+	return true;
+}
+
+bool UWS_Population::RecruitCaptivePage(int32 PageId, FString& OutReason)
+{
+	APageCharacter* Captive = FindCaptiveById(PageId);
+	if (!Captive)
+	{
+		OutReason = TEXT("Captive was not found");
+		return false;
+	}
+
+	Captive->SetFaction(EPageFaction::Friendly);
+	Captive->SetTurnCombatState(false, false);
+	if (UCharacterMovementComponent* Movement = Captive->GetCharacterMovement())
+	{
+		Movement->SetMovementMode(MOVE_Walking);
+	}
+
+	if (UStatsComponent* Stats = Captive->GetStats())
+	{
+		const float RecruitHealth = FMath::Max(1.f, Stats->GetMaxHealth() * 0.25f);
+		if (Stats->IsDead())
+		{
+			Stats->Revive(RecruitHealth);
+		}
+		else
+		{
+			Stats->RestoreHealth(RecruitHealth);
+		}
+	}
+
+	MarkCacheDirty();
+	OutReason.Reset();
+	UE_LOG(LogTemp, Log, TEXT("[Population] Recruited captive Page=%s Id=%d"), *GetNameSafe(Captive), Captive->GetPageEntityId());
+	return true;
+}
+
 int32 UWS_Population::EnsurePageEntityId(APageCharacter* Page)
 {
 	if (!Page)
@@ -153,6 +260,7 @@ void UWS_Population::ResetPageRuntimeState(APageCharacter* Page) const
 void UWS_Population::SimPlan_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds)
 {
 	RebuildCacheIfNeeded();
+	RefreshSettlementCapacityState();
 
 	for (int32 i = 0; i < CachedPages.Num(); ++i)
 	{
@@ -162,8 +270,52 @@ void UWS_Population::SimPlan_Implementation(USimCommandBuffer* CommandBuffer, fl
 			continue;
 		}
 
-		PlannedDeltas[i].HungerDelta = 0.05f;
-		PlannedDeltas[i].FatigueDelta = 0.03f;
+		// Food is now consumed as a settlement-wide meal service. Individual
+		// hunger and fatigue counters remain dormant until a later morale model.
+		PlannedDeltas[i] = FPageStatsDelta{};
+	}
+}
+
+int32 UWS_Population::GetCurrentPageCount() const
+{
+	UWS_Population* MutableThis = const_cast<UWS_Population*>(this);
+	MutableThis->RebuildCacheIfNeeded();
+	return MutableThis->CachedPages.Num();
+}
+
+int32 UWS_Population::GetPageCapacity() const
+{
+	UWS_Population* MutableThis = const_cast<UWS_Population*>(this);
+	MutableThis->RebuildCacheIfNeeded();
+	MutableThis->RefreshSettlementCapacityState();
+	return MutableThis->CachedPageCapacity;
+}
+
+bool UWS_Population::IsOverCapacity() const
+{
+	UWS_Population* MutableThis = const_cast<UWS_Population*>(this);
+	MutableThis->RebuildCacheIfNeeded();
+	MutableThis->RefreshSettlementCapacityState();
+	return MutableThis->bCachedOverCapacity;
+}
+
+void UWS_Population::RefreshSettlementCapacityState()
+{
+	int32 BuildingCapacity = 0;
+	if (UWS_Building* BuildingSubsystem = GetWorld() ? GetWorld()->GetSubsystem<UWS_Building>() : nullptr)
+	{
+		BuildingCapacity = BuildingSubsystem->GetCompletedPageCapacity();
+	}
+
+	CachedPageCapacity = FMath::Max(0, BasePageCapacity + BuildingCapacity);
+	bCachedOverCapacity = CachedPages.Num() > CachedPageCapacity;
+
+	for (const TWeakObjectPtr<APageCharacter>& WeakPage : CachedPages)
+	{
+		if (APageCharacter* Page = WeakPage.Get())
+		{
+			Page->SetSettlementOverCapacity(bCachedOverCapacity);
+		}
 	}
 }
 
@@ -255,6 +407,18 @@ void UWS_Population::EnsureTestPageSpawned()
 				}
 			}
 
+			if (Index == 0 && bGiveStarterBlockItems)
+			{
+				const int32 Added = Spawned->GetInventory()
+					? Spawned->GetInventory()->TryAddItem(StarterBlockItemId, StarterBlockItemQuantity)
+					: 0;
+				if (Added != StarterBlockItemQuantity)
+				{
+					UE_LOG(LogTemp, Warning, TEXT("[Population] Starter block grant failed ItemId=%s Requested=%d Added=%d. Check DT_Item PlacedBlockClass."),
+						*StarterBlockItemId.ToString(), StarterBlockItemQuantity, Added);
+				}
+			}
+
 			if (Index == 0 && bEquipStarterTestTool)
 			{
 				UInventoryComponent* Inventory = Spawned->GetInventory();
@@ -271,6 +435,18 @@ void UWS_Population::EnsureTestPageSpawned()
 				{
 					UE_LOG(LogTemp, Log, TEXT("[Population] Equipped starter tool ItemId=%s to RightHand PageId=%d"),
 						*StarterTestToolItemId.ToString(), Spawned->GetPageEntityId());
+				}
+			}
+
+			if (Index == 0 && bGiveStarterTestEquipment)
+			{
+				for (const FName EquipmentItemId : StarterTestEquipmentItemIds)
+				{
+					const int32 Added = Spawned->GetInventory() ? Spawned->GetInventory()->TryAddItem(EquipmentItemId, 1) : 0;
+					if (Added != 1)
+					{
+						UE_LOG(LogTemp, Warning, TEXT("[Population] Starter equipment grant failed ItemId=%s. Check DT_Item."), *EquipmentItemId.ToString());
+					}
 				}
 			}
 		}
@@ -326,7 +502,8 @@ float UWS_Population::ComputeWorkRateMultiplier_Implementation(int32 PageId, FNa
 		return 1.f;
 	}
 
-	return Page->GetSkillMultiplier(WorkId);
+	const float CapacityMultiplier = MutableThis->IsOverCapacity() ? MutableThis->OverCapacityWorkRateMultiplier : 1.f;
+	return Page->GetSkillMultiplier(WorkId) * CapacityMultiplier;
 }
 
 void UWS_Population::ApplyWorkCompletionEffects_Implementation(int32 PageId, FName WorkId)

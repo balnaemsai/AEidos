@@ -43,8 +43,7 @@ void UPageEntry::Setup(const FPageSummaryView& InView)
 
 	if (Image_PrisonerState)
 	{
-		// Prisoner/captive state is not implemented yet, so keep the slot hidden for now.
-		Image_PrisonerState->SetVisibility(ESlateVisibility::Collapsed);
+		Image_PrisonerState->SetVisibility(ViewData.bIsCaptive ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	}
 
 	if (Border_Selection)

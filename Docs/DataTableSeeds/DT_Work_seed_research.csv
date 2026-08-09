@@ -1,0 +1,12 @@
+Name,WorkId,DisplayName,WorkCategory,TotalWork,BaseWorkRate,MaxWorkers,SiteTag,Costs,Rewards,PrimarySkillId,XPPerSecond,XPFactor
+Construct_Orchard,Construct_Orchard,Construct_Orchard,Construction,18,1,2,Build,"((ResourceId=""EP"",Amount=20),(ResourceId=""Wood"",Amount=25))",(),Construction,1.2,1
+Construct_Workbench,Construct_Workbench,Construct_Workbench,Construction,12,1,2,Build,"((ResourceId=""EP"",Amount=15),(ResourceId=""Wood"",Amount=12))",(),Construction,1,1
+Construct_Quarry,Construct_Quarry,Construct_Quarry,Construction,22,1,2,Build,"((ResourceId=""EP"",Amount=30),(ResourceId=""Wood"",Amount=35),(ResourceId=""Stone"",Amount=20))",(),Construction,1.4,1.1
+Construct_Inn,Construct_Inn,Construct_Inn,Construction,8,1,1,Build,(),(),Construction,0.8,1
+Construct_EP_Altar,Construct_EP_Altar,Construct_EP_Altar,Construction,10,1,1,Build,(),(),Construction,0.9,1
+Construct_Small_Storage,Construct_Small_Storage,Construct_Small_Storage,Construction,8,1,1,Build,(),(),Construction,0.82,1.02
+Gather_Wood,Gather_Wood,Gather_Wood,Gather,6,1,1,Gather,(),"((ResourceId=""Wood"",Amount=12))",,0.74,1.02
+Gather_Stone,Gather_Stone,Gather_Stone,Gather,4,1,1,Gather,(),"((ResourceId=""Stone"",Amount=10))",,0.66,1.02
+Craft_Ration,Craft_Ration,Craft Ration,Craft,5,1,1,None,"((ResourceId=""Food"",Amount=5))","((ItemId=""Ration"",Amount=1))",Cooking,0.8,1
+Research_BasicCrafting,Research_BasicCrafting,Basic Crafting,Research,12,1,2,Research,"((ResourceId=""EP"",Amount=25))",(),Research,1,1
+Research_StoneMasonry,Research_StoneMasonry,Stone Masonry,Research,18,1,2,Research,"((ResourceId=""EP"",Amount=40),(ResourceId=""Stone"",Amount=15))",(),Research,1,1

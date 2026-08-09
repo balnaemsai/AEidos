@@ -18,6 +18,9 @@ class AActor;
 class ATerritoryChunkActor;
 class UWS_Population;
 class UWS_CombatDirector;
+class UWorldInteractionRadialWidget;
+class UWorldInteractionFocusWidget;
+class AWorldBlockActor;
 
 /**
  * 
@@ -65,6 +68,16 @@ public:
 	UFUNCTION()
 	bool IsInTerritoryPlacementMode() const;
 
+	/** Starts direct placement of one block item held by the selected Page. */
+	UFUNCTION(BlueprintCallable, Category="World Block")
+	bool BeginBlockPlacement(FName ItemId);
+
+	UFUNCTION(BlueprintCallable, Category="World Block")
+	void CancelBlockPlacement();
+
+	UFUNCTION(BlueprintPure, Category="World Block")
+	bool IsInBlockPlacementMode() const { return bInBlockPlacementMode; }
+
 	UFUNCTION()
 	FName GetPendingBuildingId() const;
 
@@ -97,6 +110,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="World Interaction")
 	bool ExecuteContextWorldInteraction(FName InteractionId);
+
+	/** Arms an interaction selected in the radial menu. The next primary click performs it. */
+	UFUNCTION(BlueprintCallable, Category="World Interaction")
+	bool SelectContextWorldInteraction(FName InteractionId);
 
 	UFUNCTION(BlueprintCallable, Category="World Interaction")
 	void CloseWorldInteractionRadial();
@@ -136,6 +153,7 @@ protected:
 	UFUNCTION()
 	void OnPrimaryClick(const FInputActionValue& Value);
 	void OnPrimaryClickHeld(const FInputActionValue& Value);
+	void OnPrimaryClickCompleted(const FInputActionValue& Value);
 	void OnSecondaryClick();
 
 	UFUNCTION()
@@ -206,12 +224,23 @@ protected:
 	void ConfirmTerritoryExpansionPlacement();
 	void UpdateTerritoryPreview();
 	void SpawnOrRefreshTerritoryPreview();
+	void ConfirmBlockPlacement();
+	void UpdateBlockPreview();
+	void SpawnOrRefreshBlockPreview();
 	AActor* FindFocusedCombatActionTarget() const;
 	AActor* FindFocusedInteractActor() const;
 	AActor* FindFocusedWorldInteractionActor() const;
 	bool TryInteractWithActor(AActor* TargetActor);
 	bool OpenWorldInteractionRadial(AActor* TargetActor);
 	bool ExecuteDefaultWorldInteraction(AActor* TargetActor);
+	bool ExecuteSelectedWorldInteraction();
+	bool ShowWorldInteractionRadialWidget(AActor* TargetActor, const TArray<FWorldInteractionOption>& Options);
+	bool ResolvePreparedWorldInteraction(AActor* TargetActor, TArray<FWorldInteractionOption>& OutOptions,
+		FWorldInteractionOption& OutPreparedOption) const;
+	void UpdateWorldInteractionFocus();
+	void ClearWorldInteractionFocus();
+	FText FormatPreparedWorldInteraction(const FWorldInteractionOption& Option) const;
+	void ClearSelectedWorldInteraction();
 	void SelectAdjacentPage(int32 Direction);
 	void EnsureValidSelectedPage();
 	bool TriggerCombatActionSlot(int32 SlotIndex);
@@ -235,6 +264,18 @@ protected:
 	TWeakObjectPtr<ATerritoryChunkActor> TerritoryPreviewActor;
 
 	UPROPERTY(Transient)
+	bool bInBlockPlacementMode = false;
+
+	UPROPERTY(Transient)
+	FName PendingBlockItemId = NAME_None;
+
+	UPROPERTY(Transient)
+	TWeakObjectPtr<AWorldBlockActor> BlockPreviewActor;
+
+	UPROPERTY(Transient)
+	bool bBlockPlacementPreviewValid = false;
+
+	UPROPERTY(Transient)
 	TWeakObjectPtr<AActor> SelectedCombatTarget;
 
 	UPROPERTY(Transient)
@@ -243,7 +284,28 @@ protected:
 	UPROPERTY(Transient)
 	TArray<FWorldInteractionOption> ContextInteractionOptions;
 
-	float LastSecondaryClickTime = -FLT_MAX;
+	// A radial option arms this action for the selected Page. It remains armed across
+	// compatible focused blocks and falls back to each block's default when unavailable.
+	UPROPERTY(Transient)
+	TWeakObjectPtr<APageCharacter> SelectedWorldInteractionPage;
+
+	UPROPERTY(Transient)
+	FName SelectedWorldInteractionId = NAME_None;
+
+	UPROPERTY(EditDefaultsOnly, Category="World Interaction")
+	TSubclassOf<UWorldInteractionRadialWidget> WorldInteractionRadialClass;
+
+	UPROPERTY(EditDefaultsOnly, Category="World Interaction")
+	TSubclassOf<UWorldInteractionFocusWidget> WorldInteractionFocusClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UWorldInteractionRadialWidget> ActiveWorldInteractionRadial;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UWorldInteractionFocusWidget> ActiveWorldInteractionFocus;
+
+	UPROPERTY(Transient)
+	TWeakObjectPtr<AActor> FocusedWorldInteractionActor;
 
 	UPROPERTY(Transient)
 	int32 PendingCombatActionSlot = INDEX_NONE;
@@ -267,14 +329,17 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Interaction")
 	float InteractForwardDotThreshold = 0.55f;
 
-	UPROPERTY(EditDefaultsOnly, Category="Interaction", meta=(ClampMin="0.05", ClampMax="1.0"))
-	float ContextInteractionDoubleClickSeconds = 0.30f;
+	UPROPERTY(EditDefaultsOnly, Category="World Block", meta=(ClampMin="100.0"))
+	float BlockPlacementMaxDistance = 1200.f;
 
 	// The first click acts immediately; holding repeats only non-combat world interactions.
 	UPROPERTY(EditDefaultsOnly, Category="Interaction", meta=(ClampMin="0.05", ClampMax="2.0"))
 	float WorldInteractionRepeatInterval = 0.35f;
 
 	float LastWorldInteractionTime = -FLT_MAX;
+
+	// Prevent the remainder of an action-selecting click from becoming a held default interaction.
+	bool bSuppressWorldInteractionRepeatUntilPrimaryReleased = false;
 
 	UPROPERTY(Transient)
 	bool bFirstPersonUIFocusMode = false;

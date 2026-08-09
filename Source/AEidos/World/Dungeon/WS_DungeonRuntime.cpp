@@ -16,6 +16,8 @@
 #include "World/Dungeon/DungeonSettlementPreset.h"
 #include "World/Dungeon/DungeonCoreActor.h"
 #include "World/Dungeon/DungeonReturnPortalActor.h"
+#include "World/Interaction/WorldBlockActor.h"
+#include "World/Interaction/WorldItemBlockActor.h"
 #include "World/Settlement/TerritoryChunkActor.h"
 #include "World/Settlement/WS_PortalDirector.h"
 #include "World/Settlement/WS_ItemStorage.h"
@@ -304,13 +306,17 @@ void UWS_DungeonRuntime::SpawnPresetLayoutIntoDungeon(ULevel* LoadedLevel)
 	SpawnDungeonBuildings(LoadedLevel, Preset);
 	SpawnDungeonCore(LoadedLevel, Preset);
 	SpawnDungeonEnemies(LoadedLevel, Preset);
+	SpawnDungeonWorldBlocks(LoadedLevel, Preset);
+	SpawnDungeonWorldItems(LoadedLevel, Preset);
 
 	UE_LOG(LogTemp, Log,
-		TEXT("[DungeonRuntime] Spawned preset '%s' Chunks=%d Buildings=%d EnemySpawns=%d"),
+		TEXT("[DungeonRuntime] Spawned preset '%s' Chunks=%d Buildings=%d EnemySpawns=%d WorldBlocks=%d LegacyWorldItems=%d"),
 		*GetNameSafe(Preset),
 		Preset->OwnedChunks.Num(),
 		Preset->Buildings.Num(),
-		Preset->EnemySpawns.Num());
+		Preset->EnemySpawns.Num(),
+		Preset->WorldBlocks.Num(),
+		Preset->WorldItems.Num());
 }
 
 void UWS_DungeonRuntime::SpawnDungeonChunks(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset)
@@ -510,6 +516,75 @@ void UWS_DungeonRuntime::HandleDungeonCoreDestroyed(ADungeonCoreActor* Destroyed
 	StartDungeonCollapse(DestroyedCore->GetActorTransform(), LoadedLevel);
 }
 
+void UWS_DungeonRuntime::SpawnDungeonWorldItems(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset)
+{
+	if (!LoadedLevel || !Preset)
+	{
+		return;
+	}
+
+	for (const FDungeonWorldItemPreset& ItemPreset : Preset->WorldItems)
+	{
+		UClass* ItemActorClass = ItemPreset.ActorClass.LoadSynchronous();
+		if (!ItemActorClass || !ItemActorClass->IsChildOf(AWorldItemBlockActor::StaticClass()))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] Invalid world item class for ItemId=%s"),
+				*ItemPreset.ItemId.ToString());
+			continue;
+		}
+
+		FActorSpawnParameters Params;
+		Params.OverrideLevel = LoadedLevel;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+		if (AWorldItemBlockActor* WorldItem = GetWorld()->SpawnActor<AWorldItemBlockActor>(
+			ItemActorClass, MakeDungeonWorldTransform(ItemPreset.LocalTransform), Params))
+		{
+			WorldItem->ApplyDungeonPresetData(
+				ItemPreset.ItemId,
+				ItemPreset.RemainingQuantity,
+				ItemPreset.QuantityPerHarvest,
+				ItemPreset.bCanPickUp,
+				ItemPreset.bCanHarvest,
+				ItemPreset.RequiredHarvestToolTag);
+			ActiveSession.SpawnedActors.Add(WorldItem);
+		}
+	}
+}
+
+void UWS_DungeonRuntime::SpawnDungeonWorldBlocks(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset)
+{
+	if (!LoadedLevel || !Preset)
+	{
+		return;
+	}
+
+	for (const FDungeonWorldBlockPreset& BlockPreset : Preset->WorldBlocks)
+	{
+		UClass* BlockActorClass = BlockPreset.ActorClass.LoadSynchronous();
+		if (!BlockActorClass || !BlockActorClass->IsChildOf(AWorldBlockActor::StaticClass()))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] Invalid world block class for BlockId=%s"),
+				*BlockPreset.BlockId.ToString());
+			continue;
+		}
+
+		FActorSpawnParameters Params;
+		Params.OverrideLevel = LoadedLevel;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+		if (AWorldBlockActor* WorldBlock = GetWorld()->SpawnActor<AWorldBlockActor>(
+			BlockActorClass, MakeDungeonWorldTransform(BlockPreset.LocalTransform), Params))
+		{
+			WorldBlock->ApplyDungeonBlockPresetData(
+				BlockPreset.BlockId,
+				BlockPreset.RemainingIntegrity,
+				BlockPreset.Interactions);
+			ActiveSession.SpawnedActors.Add(WorldBlock);
+		}
+	}
+}
+
 void UWS_DungeonRuntime::StartDungeonCollapse(const FTransform& CoreTransform, ULevel* LoadedLevel)
 {
 	if (ActiveSession.bCoreDestroyed || !GetWorld())
@@ -566,7 +641,7 @@ bool UWS_DungeonRuntime::ReturnPageFromActiveDungeon(APageCharacter* ReturningPa
 	ReturningPage->CurrentJobState = FPageJobState{};
 	if (UWS_ItemStorage* ItemStorage = GetWorld()->GetSubsystem<UWS_ItemStorage>())
 	{
-		ItemStorage->DepositPageInventory(ReturningPage);
+		ItemStorage->ConvertReturnResources(ReturningPage);
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("[DungeonRuntime] PageId=%d returned before collapse"), ReturningPage->GetPageEntityId());

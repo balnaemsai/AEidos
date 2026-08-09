@@ -40,22 +40,35 @@ namespace
 			}
 		}
 
-		if (Page->IsInDungeon())
+		FText BaseStatus;
+	if (Page->IsInDungeon())
 		{
-			return FText::FromString(TEXT("던전 내"));
+			BaseStatus = FText::FromString(TEXT("던전 내"));
 		}
 
-		if (Page->IsInTurnCombat())
+		if (Page->IsCaptive())
 		{
-			return Page->HasActiveCombatTurn() ? FText::FromString(TEXT("전투 중 (행동 가능)")) : FText::FromString(TEXT("전투 중"));
+			return FText::FromString(TEXT("수감 중"));
+		}
+		else if (Page->IsInTurnCombat())
+		{
+			BaseStatus = Page->HasActiveCombatTurn() ? FText::FromString(TEXT("전투 중 (행동 가능)")) : FText::FromString(TEXT("전투 중"));
+		}
+		else if (Page->CurrentJobState.bIsActive)
+		{
+			BaseStatus = FText::Format(FText::FromString(TEXT("{0} 작업 중")), FText::FromName(Page->CurrentJobState.WorkId));
+		}
+		else
+		{
+			BaseStatus = FText::FromString(TEXT("대기 중"));
 		}
 
-		if (Page->CurrentJobState.bIsActive)
+		if (Page->IsSettlementOverCapacity())
 		{
-			return FText::Format(FText::FromString(TEXT("{0} 작업 중")), FText::FromName(Page->CurrentJobState.WorkId));
+			return FText::Format(FText::FromString(TEXT("{0} | 수용량 초과")), BaseStatus);
 		}
 
-		return FText::FromString(TEXT("대기 중"));
+		return BaseStatus;
 	}
 
 	void AutoPopulateQuickBarIfNeeded(APageCharacter* Page, UGIS_DataRegistry* Registry)
@@ -189,6 +202,19 @@ void UPanel_Pages::NativeConstruct()
 	{
 		Button_EditSkills->OnClicked.AddDynamic(this, &UPanel_Pages::HandleEditSkillsClicked);
 	}
+	if (Button_Equipment)
+	{
+		Button_Equipment->OnClicked.AddDynamic(this, &UPanel_Pages::HandleEquipmentClicked);
+	}
+	if (Button_RecruitCaptive)
+	{
+		Button_RecruitCaptive->OnClicked.AddDynamic(this, &UPanel_Pages::HandleRecruitCaptiveClicked);
+		UE_LOG(LogTemp, Log, TEXT("[Pages] Recruit button bound: %s"), *Button_RecruitCaptive->GetName());
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Pages] Button_RecruitCaptive is not bound. Check its exact name and Is Variable setting in WBP_Panel_Pages."));
+	}
 
 	RefreshFromWorld();
 }
@@ -238,21 +264,28 @@ void UPanel_Pages::RefreshFromWorld()
 		AutoPopulateQuickBarIfNeeded(SelectedPage, Registry);
 	}
 
-	RebindSelectedPageStats(SelectedPage);
-
-	for (const TWeakObjectPtr<APageCharacter>& WeakPage : Population->GetOwnedPages())
+	APageCharacter* DetailPage = InspectedCaptive.Get();
+	if (!DetailPage || !DetailPage->IsCaptive())
 	{
-		APageCharacter* Page = WeakPage.Get();
+		InspectedCaptive.Reset();
+		DetailPage = SelectedPage;
+	}
+
+	RebindSelectedPageStats(DetailPage);
+
+	auto AddPageView = [this, CombatDirector, DetailPage](APageCharacter* Page)
+	{
 		if (!Page)
 		{
-			continue;
+			return;
 		}
 
 		FPageSummaryView View;
 		View.PageId = Page->GetPageEntityId();
 		View.DisplayName = FText::FromString(GetNameSafe(Page));
 		View.Faction = Page->GetFaction();
-		View.bIsSelected = (Page == SelectedPage);
+		View.bIsSelected = (Page == DetailPage);
+		View.bIsCaptive = Page->IsCaptive();
 		View.bIsInDungeon = Page->IsInDungeon();
 		View.bIsInTurnCombat = Page->IsInTurnCombat();
 		View.bHasActiveCombatTurn = Page->HasActiveCombatTurn();
@@ -278,13 +311,25 @@ void UPanel_Pages::RefreshFromWorld()
 
 		CachedPages.Add(View);
 
-		if (Page == SelectedPage)
+		if (Page == DetailPage)
 		{
 			SelectedPageSummary = View;
 		}
+	};
+
+	for (const TWeakObjectPtr<APageCharacter>& WeakPage : Population->GetOwnedPages())
+	{
+		AddPageView(WeakPage.Get());
 	}
 
-	if (SelectedPage)
+	TArray<APageCharacter*> Captives;
+	Population->GetCaptivePages(Captives);
+	for (APageCharacter* Captive : Captives)
+	{
+		AddPageView(Captive);
+	}
+
+	if (DetailPage && !DetailPage->IsCaptive())
 	{
 		for (int32 SlotIndex = 0; SlotIndex < 10; ++SlotIndex)
 		{
@@ -292,7 +337,7 @@ void UPanel_Pages::RefreshFromWorld()
 			FPageQuickSlotView SlotView;
 			SlotView.SlotIndex = SlotIndex;
 			SlotView.SlotLabel = FText::FromString(SlotIndex == 9 ? TEXT("0") : FString::FromInt(SlotIndex + 1));
-			if (SelectedPage->GetCombatActionSlot(SlotIndex, ActionSlot))
+			if (DetailPage->GetCombatActionSlot(SlotIndex, ActionSlot))
 			{
 				SlotView.ActionType = ActionSlot.ActionType;
 				SlotView.ActionId = ActionSlot.ActionId;
@@ -302,7 +347,7 @@ void UPanel_Pages::RefreshFromWorld()
 			SelectedPageQuickSlots.Add(SlotView);
 		}
 
-		BuildAvailableActions(SelectedPage, Registry, SelectedPageQuickSlots, SelectedPageAvailableActions);
+		BuildAvailableActions(DetailPage, Registry, SelectedPageQuickSlots, SelectedPageAvailableActions);
 	}
 
 	RebuildPageEntryWidgets();
@@ -311,8 +356,22 @@ void UPanel_Pages::RefreshFromWorld()
 
 bool UPanel_Pages::RequestSelectPage(int32 PageId)
 {
+	if (UWorld* World = GetWorld())
+	{
+		if (UWS_Population* Population = World->GetSubsystem<UWS_Population>())
+		{
+			if (APageCharacter* Captive = Population->FindCaptiveById(PageId))
+			{
+				InspectedCaptive = Captive;
+				RefreshFromWorld();
+				return true;
+			}
+		}
+	}
+
 	if (AEidosPlayerController* EidosPC = Cast<AEidosPlayerController>(GetOwningPlayer()))
 	{
+		InspectedCaptive.Reset();
 		const bool bChanged = EidosPC->SelectPageByEntityId(PageId);
 		if (bChanged)
 		{
@@ -419,6 +478,27 @@ void UPanel_Pages::RefreshDetailWidgets()
 	if (Text_Status)
 	{
 		Text_Status->SetText(bHasSelectedPage ? SelectedPageSummary.StatusText : FText::GetEmpty());
+	}
+
+	if (Button_RecruitCaptive)
+	{
+		Button_RecruitCaptive->SetVisibility(SelectedPageSummary.bIsCaptive ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+
+	const ESlateVisibility ManagementVisibility = bHasSelectedPage && !SelectedPageSummary.bIsCaptive
+		? ESlateVisibility::Visible
+		: ESlateVisibility::Collapsed;
+	if (Button_Details)
+	{
+		Button_Details->SetVisibility(ManagementVisibility);
+	}
+	if (Button_EditSkills)
+	{
+		Button_EditSkills->SetVisibility(ManagementVisibility);
+	}
+	if (Button_Equipment)
+	{
+		Button_Equipment->SetVisibility(ManagementVisibility);
 	}
 
 	if (Text_Volume)
@@ -601,6 +681,52 @@ void UPanel_Pages::HandleEditSkillsClicked()
 	OnEditSkillsRequested(SelectedPageSummary);
 }
 
+void UPanel_Pages::HandleEquipmentClicked()
+{
+	if (SelectedPageSummary.PageId == INDEX_NONE)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Pages] Equipment editor ignored because no Page is selected"));
+		return;
+	}
+
+	if (AEidosPlayerController* EidosPC = Cast<AEidosPlayerController>(GetOwningPlayer()))
+	{
+		if (AEidosHUD* EidosHUD = Cast<AEidosHUD>(EidosPC->GetHUD()))
+		{
+			if (UHUDRootWidget* HUDRoot = EidosHUD->GetHUDRootWidget())
+			{
+				HUDRoot->ShowPageEquipmentEditor(EidosPC->GetSelectedPage());
+			}
+		}
+	}
+}
+
+void UPanel_Pages::HandleRecruitCaptiveClicked()
+{
+	UE_LOG(LogTemp, Log, TEXT("[Pages] Recruit clicked PageId=%d IsCaptive=%d"), SelectedPageSummary.PageId, SelectedPageSummary.bIsCaptive);
+	if (!SelectedPageSummary.bIsCaptive || SelectedPageSummary.PageId == INDEX_NONE)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	UWS_Population* Population = World ? World->GetSubsystem<UWS_Population>() : nullptr;
+	FString Reason;
+	if (!Population || !Population->RecruitCaptivePage(SelectedPageSummary.PageId, Reason))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Pages] Recruit captive failed PageId=%d Reason=%s"), SelectedPageSummary.PageId, *Reason);
+		return;
+	}
+
+	if (AEidosPlayerController* EidosPC = Cast<AEidosPlayerController>(GetOwningPlayer()))
+	{
+		EidosPC->SelectPageByEntityId(SelectedPageSummary.PageId);
+	}
+
+	InspectedCaptive.Reset();
+	RefreshFromWorld();
+}
+
 void UPanel_Pages::HandleSelectedPageStatsChanged()
 {
 	// Hunger and fatigue update continuously in the simulation. Rebuilding the
@@ -612,7 +738,7 @@ void UPanel_Pages::HandleSelectedPageStatsChanged()
 void UPanel_Pages::RefreshSelectedPageVitals()
 {
 	AEidosPlayerController* EidosPC = Cast<AEidosPlayerController>(GetOwningPlayer());
-	APageCharacter* SelectedPage = EidosPC ? EidosPC->GetSelectedPage() : nullptr;
+	APageCharacter* SelectedPage = InspectedCaptive.IsValid() ? InspectedCaptive.Get() : (EidosPC ? EidosPC->GetSelectedPage() : nullptr);
 	if (!SelectedPage || SelectedPage->GetPageEntityId() != SelectedPageSummary.PageId)
 	{
 		// A different Page was selected outside this panel; rebuild once to make

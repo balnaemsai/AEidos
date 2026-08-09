@@ -6,6 +6,8 @@
 #include "UI/HUD/Panels/PanelHostWidget.h"
 #include "UI/HUD/Panels/Panel_Pages.h"
 #include "UI/HUD/Panels/PageSkillEditorWidget.h"
+#include "UI/HUD/Panels/PageEquipmentEditorWidget.h"
+#include "UI/HUD/Panels/WorkOrderPopupWidget.h"
 #include "Components/OverlaySlot.h"
 
 void UHUDRootWidget::NativeConstruct()
@@ -15,6 +17,15 @@ void UHUDRootWidget::NativeConstruct()
 	{
 		PageSkillEditorClass = LoadClass<UPageSkillEditorWidget>(nullptr,
 			TEXT("/Game/Blueprints/WBP/WBP_PageSkillEditor.WBP_PageSkillEditor_C"));
+	}
+	if (!PageEquipmentEditorClass)
+	{
+		PageEquipmentEditorClass = LoadClass<UPageEquipmentEditorWidget>(nullptr,
+			TEXT("/Game/Blueprints/WBP/WBP_PageEquipmentEditor.WBP_PageEquipmentEditor_C"));
+	}
+	if (!WorkOrderPopupClass)
+	{
+		WorkOrderPopupClass = LoadClass<UWorkOrderPopupWidget>(nullptr, TEXT("/Game/Blueprints/WBP/WBP_WorkOrderPopup.WBP_WorkOrderPopup_C"));
 	}
 
 	if (WBP_PanelNavBarWidget)
@@ -94,5 +105,41 @@ bool UHUDRootWidget::ShowPageSkillEditor(UPanel_Pages* SourcePanel)
 	}
 
 	ActivePageSkillEditor->OpenForPanel(SourcePanel);
+	return true;
+}
+
+bool UHUDRootWidget::ShowPageEquipmentEditor(APageCharacter* Page)
+{
+	if (!Page || !Layer_Modal || !PageEquipmentEditorClass)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Equipment] Cannot open editor. Page=%s Layer=%s Class=%s"),
+			*GetNameSafe(Page), *GetNameSafe(Layer_Modal), *GetNameSafe(PageEquipmentEditorClass));
+		return false;
+	}
+
+	if (ActivePageEquipmentEditor)
+	{
+		ActivePageEquipmentEditor->RemoveFromParent();
+		ActivePageEquipmentEditor = nullptr;
+	}
+
+	ActivePageEquipmentEditor = CreateWidget<UPageEquipmentEditorWidget>(GetOwningPlayer(), PageEquipmentEditorClass);
+	if (!ActivePageEquipmentEditor) return false;
+	if (UOverlaySlot* ModalSlot = Layer_Modal->AddChildToOverlay(ActivePageEquipmentEditor))
+	{
+		ModalSlot->SetHorizontalAlignment(HAlign_Center);
+		ModalSlot->SetVerticalAlignment(VAlign_Center);
+	}
+	ActivePageEquipmentEditor->OpenForPage(Page);
+	return true;
+}
+
+bool UHUDRootWidget::ShowWorkOrderPopup()
+{
+	if (!Layer_Modal || !WorkOrderPopupClass) return false;
+	if (ActiveWorkOrderPopup) { ActiveWorkOrderPopup->RemoveFromParent(); ActiveWorkOrderPopup = nullptr; }
+	ActiveWorkOrderPopup = CreateWidget<UWorkOrderPopupWidget>(GetOwningPlayer(), WorkOrderPopupClass);
+	if (!ActiveWorkOrderPopup) return false;
+	if (UOverlaySlot* ModalSlot = Layer_Modal->AddChildToOverlay(ActiveWorkOrderPopup)) { ModalSlot->SetHorizontalAlignment(HAlign_Center); ModalSlot->SetVerticalAlignment(VAlign_Center); }
 	return true;
 }

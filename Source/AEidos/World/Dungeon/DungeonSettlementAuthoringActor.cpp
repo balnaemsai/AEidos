@@ -9,6 +9,8 @@
 #include "Entities/Page/PageCharacter.h"
 #include "World/Dungeon/DungeonAuthoringMarker.h"
 #include "World/Dungeon/DungeonSettlementPreset.h"
+#include "World/Interaction/WorldBlockActor.h"
+#include "World/Interaction/WorldItemBlockActor.h"
 #include "World/Settlement/TerritoryChunkActor.h"
 #include "Components/SceneComponent.h"
 
@@ -69,6 +71,8 @@ void ADungeonSettlementAuthoringActor::CapturePresetFromLevel()
 	TSet<FIntPoint> ChunkSet;
 	TArray<FDungeonSettlementBuildingPreset> BuildingEntries;
 	TArray<FDungeonEnemySpawnPreset> EnemySpawns;
+	TArray<FDungeonWorldBlockPreset> WorldBlocks;
+	TArray<FDungeonWorldItemPreset> WorldItems;
 	FTransform EntryTransform = FTransform::Identity;
 	FTransform CoreTransform = FTransform::Identity;
 	int32 DetectedChunkActors = 0;
@@ -96,6 +100,37 @@ void ADungeonSettlementAuthoringActor::CapturePresetFromLevel()
 					FMath::RoundToInt(LocalLocation.X / ChunkSizeCm),
 					FMath::RoundToInt(LocalLocation.Y / ChunkSizeCm));
 				ChunkSet.Add(Coord);
+				continue;
+			}
+		}
+
+		if (bCaptureWorldBlocks)
+		{
+			if (AWorldBlockActor* WorldBlock = Cast<AWorldBlockActor>(Actor))
+			{
+				FDungeonWorldBlockPreset& BlockPreset = WorldBlocks.AddDefaulted_GetRef();
+				BlockPreset.ActorClass = WorldBlock->GetClass();
+				BlockPreset.LocalTransform = MakeLocalTransform(WorldBlock->GetActorTransform());
+				BlockPreset.BlockId = WorldBlock->GetBlockId();
+				BlockPreset.RemainingIntegrity = WorldBlock->GetRemainingIntegrity();
+				WorldBlock->GetBlockInteractionDefinitions(BlockPreset.Interactions);
+				continue;
+			}
+		}
+
+		if (!bCaptureWorldBlocks && bCaptureWorldItemBlocks)
+		{
+			if (AWorldItemBlockActor* WorldItem = Cast<AWorldItemBlockActor>(Actor))
+			{
+				FDungeonWorldItemPreset& ItemPreset = WorldItems.AddDefaulted_GetRef();
+				ItemPreset.ActorClass = WorldItem->GetClass();
+				ItemPreset.LocalTransform = MakeLocalTransform(WorldItem->GetActorTransform());
+				ItemPreset.ItemId = WorldItem->GetItemId();
+				ItemPreset.RemainingQuantity = WorldItem->GetRemainingQuantity();
+				ItemPreset.QuantityPerHarvest = WorldItem->GetQuantityPerHarvest();
+				ItemPreset.bCanPickUp = WorldItem->CanPickUp();
+				ItemPreset.bCanHarvest = WorldItem->CanHarvest();
+				ItemPreset.RequiredHarvestToolTag = WorldItem->GetRequiredHarvestToolTag();
 				continue;
 			}
 		}
@@ -158,14 +193,26 @@ void ADungeonSettlementAuthoringActor::CapturePresetFromLevel()
 	TargetPreset->EntryTransform = EntryTransform;
 	TargetPreset->CoreTransform = CoreTransform;
 	TargetPreset->EnemySpawns = MoveTemp(EnemySpawns);
+	TargetPreset->WorldBlocks = MoveTemp(WorldBlocks);
+	if (bCaptureWorldBlocks)
+	{
+		// A new capture migrates the preset to the unified block format.
+		TargetPreset->WorldItems.Reset();
+	}
+	else
+	{
+		TargetPreset->WorldItems = MoveTemp(WorldItems);
+	}
 	TargetPreset->MarkPackageDirty();
 
 	UE_LOG(LogTemp, Log,
-		TEXT("[DungeonAuthoring] Captured preset '%s' Chunks=%d Buildings=%d EnemySpawns=%d DetectedChunkActors=%d SameLevelOnly=%d"),
+		TEXT("[DungeonAuthoring] Captured preset '%s' Chunks=%d Buildings=%d EnemySpawns=%d WorldBlocks=%d LegacyWorldItems=%d DetectedChunkActors=%d SameLevelOnly=%d"),
 		*GetNameSafe(TargetPreset),
 		TargetPreset->OwnedChunks.Num(),
 		TargetPreset->Buildings.Num(),
 		TargetPreset->EnemySpawns.Num(),
+		TargetPreset->WorldBlocks.Num(),
+		TargetPreset->WorldItems.Num(),
 		DetectedChunkActors,
 		bRestrictCaptureToSameLevel ? 1 : 0);
 

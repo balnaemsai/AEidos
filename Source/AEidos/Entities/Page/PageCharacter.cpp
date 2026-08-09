@@ -93,6 +93,7 @@ APageCharacter::APageCharacter()
 
 	CombatActionSlots.SetNum(10);
 	DefaultSkillIds.Add(TEXT("Slash"));
+	DefaultSkillIds.Add(TEXT("Subdue"));
 
 }
 
@@ -325,12 +326,19 @@ void APageCharacter::EnsureDefaultCombatLoadout()
 
 	const FName DefaultSkillId(TEXT("Slash"));
 	GrantSkill(DefaultSkillId);
+	GrantSkill(TEXT("Subdue"));
 
 	FPageCombatActionSlot SlashSlot;
 	SlashSlot.ActionType = EPageCombatActionType::ActiveSkill;
 	SlashSlot.ActionId = DefaultSkillId;
 	SlashSlot.DisplayName = FText::FromString(TEXT("Slash"));
 	SetCombatActionSlot(0, SlashSlot);
+
+	FPageCombatActionSlot SubdueSlot;
+	SubdueSlot.ActionType = EPageCombatActionType::ActiveSkill;
+	SubdueSlot.ActionId = TEXT("Subdue");
+	SubdueSlot.DisplayName = FText::FromString(TEXT("Subdue"));
+	SetCombatActionSlot(1, SubdueSlot);
 }
 
 void APageCharacter::SetPageEntityId(int32 NewPageEntityId)
@@ -345,7 +353,9 @@ void APageCharacter::SetFaction(EPageFaction NewFaction)
 
 bool APageCharacter::IsHostileTo(const APageCharacter* OtherPage) const
 {
-	return OtherPage && OtherPage != this && Faction != OtherPage->Faction;
+	return OtherPage && OtherPage != this
+		&& ((Faction == EPageFaction::Friendly && OtherPage->Faction == EPageFaction::Hostile)
+			|| (Faction == EPageFaction::Hostile && OtherPage->Faction == EPageFaction::Friendly));
 }
 
 void APageCharacter::SetIsInDungeon(bool bNewIsInDungeon)
@@ -464,11 +474,23 @@ void APageCharacter::HandleInventoryChanged()
 	UpdateOverloadMovementSpeed();
 }
 
+void APageCharacter::SetSettlementOverCapacity(bool bNewOverCapacity)
+{
+	if (bSettlementOverCapacity == bNewOverCapacity)
+	{
+		return;
+	}
+
+	bSettlementOverCapacity = bNewOverCapacity;
+	UpdateOverloadMovementSpeed();
+}
+
 void APageCharacter::UpdateOverloadMovementSpeed()
 {
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 	{
-		MoveComp->MaxWalkSpeed = BaseWalkSpeed * GetOverloadMovementMultiplier();
+		const float SettlementMultiplier = bSettlementOverCapacity ? OverCapacityMovementMultiplier : 1.f;
+		MoveComp->MaxWalkSpeed = BaseWalkSpeed * GetOverloadMovementMultiplier() * SettlementMultiplier;
 	}
 }
 

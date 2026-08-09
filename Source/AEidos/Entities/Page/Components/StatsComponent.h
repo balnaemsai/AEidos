@@ -60,6 +60,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Stats")
 	void ApplyDamage(float DamageAmount);
 
+	/** Restores health without exceeding MaxHealth and returns the amount actually restored. */
+	UFUNCTION(BlueprintCallable, Category="Stats")
+	float RestoreHealth(float RequestedAmount);
+
+	/** Restores a defeated Page for explicit systems such as capture or recruitment. */
+	UFUNCTION(BlueprintCallable, Category="Stats")
+	void Revive(float NewHealth);
+
 	UFUNCTION(BlueprintCallable, Category="Stats")
 	void RestoreToFull();
 

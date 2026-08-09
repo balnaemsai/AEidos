@@ -10,6 +10,7 @@
 #include "Simulation/SimCommandBuffer.h"
 #include "World/Settlement/EidosAccessInterface.h"
 #include "World/Settlement/WS_Economy.h"
+#include "World/Settlement/WS_ItemStorage.h"
 #include "World/Settlement/WS_Population.h"
 
 void UWS_Work::Initialize(FSubsystemCollectionBase& Collection)
@@ -18,8 +19,10 @@ void UWS_Work::Initialize(FSubsystemCollectionBase& Collection)
 
 	Collection.InitializeDependency<UWS_Economy>();
 	Collection.InitializeDependency<UWS_Population>();
+	Collection.InitializeDependency<UWS_ItemStorage>();
 	EconomyObj = GetWorld()->GetSubsystem<UWS_Economy>();
 	PopulationObj = GetWorld()->GetSubsystem<UWS_Population>();
+	ItemStorage = GetWorld()->GetSubsystem<UWS_ItemStorage>();
 
 	if (EconomyObj && !EconomyObj->GetClass()->ImplementsInterface(UEidosEconomyAccess::StaticClass()))
 	{
@@ -51,7 +54,6 @@ void UWS_Work::SimCommit_Implementation(USimCommandBuffer* CommandBuffer, float 
 		return;
 	}
 
-	TWeakObjectPtr<UObject> WeakEco(EconomyObj);
 	TWeakObjectPtr<UWS_Work> WeakThis(this);
 
 	for (const FWorkInstance& Planned : PlannedNewInstances)
@@ -65,17 +67,13 @@ void UWS_Work::SimCommit_Implementation(USimCommandBuffer* CommandBuffer, float 
 		const FWorkInstance Inst = Planned;
 		const TArray<FWorkCost> Costs = Def->Costs;
 
-		CommandBuffer->Enqueue([WeakThis, WeakEco, Inst, Costs]()
+		CommandBuffer->Enqueue([WeakThis, Inst, Costs]()
 		{
 			if (UWS_Work* Work = WeakThis.Get())
 			{
 				Work->ActiveInstances.Add(Inst);
 				Work->BroadcastRequestState(Inst.RequestId, EWorkRequestLifecycleState::Active);
-			}
-
-			if (UObject* EcoObj = WeakEco.Get())
-			{
-				IEidosEconomyAccess::Execute_ConsumeCosts(EcoObj, Costs);
+				Work->ConsumeWorkCosts(Costs);
 			}
 		});
 	}
@@ -95,6 +93,16 @@ void UWS_Work::SimCommit_Implementation(USimCommandBuffer* CommandBuffer, float 
 						Assignment.WorkId,
 						Assignment.WorkLocation,
 						Assignment.Priority);
+				}
+
+				// Worker membership changes during planning, but the popup reads the
+				// committed instance state. Notify it after the assignment is applied.
+				if (const FWorkInstance* Instance = Work->ActiveInstances.FindByPredicate([&Assignment](const FWorkInstance& Candidate)
+				{
+					return Candidate.InstanceId == Assignment.InstanceId;
+				}))
+				{
+					Work->BroadcastRequestState(Instance->RequestId, EWorkRequestLifecycleState::Active);
 				}
 			}
 		});
@@ -116,10 +124,15 @@ void UWS_Work::SimCommit_Implementation(USimCommandBuffer* CommandBuffer, float 
 		});
 	}
 
-	Queue.RemoveAll([](const FWorkRequest& Request)
+	const int32 RemovedRequests = Queue.RemoveAll([](const FWorkRequest& Request)
 	{
 		return Request.Mode == EWorkRequestMode::Count && Request.RemainingCount <= 0;
 	});
+	if (RemovedRequests > 0)
+	{
+		// The queue is now authoritative, so refresh any order-list UI after removals.
+		OnWorkRequestStateChanged.Broadcast(INDEX_NONE, EWorkRequestLifecycleState::Cancelled);
+	}
 }
 
 int32 UWS_Work::AddWorkRequest(const FWorkRequest& InReq)
@@ -147,6 +160,133 @@ int32 UWS_Work::AddWorkRequest(const FWorkRequest& InReq)
 	return Req.RequestId;
 }
 
+int32 UWS_Work::QueueWorkById(FName WorkId, int32 Quantity, int32 Priority)
+{
+	if (WorkId.IsNone() || Quantity <= 0)
+	{
+		return INDEX_NONE;
+	}
+
+	const FWorkDefinitionRow* Def = FindDef(WorkId);
+	if (!Def || !CanReserveWorkCosts(Def->Costs, Quantity) || !CanStoreWorkRewards(Def->Rewards))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Work] QueueWorkById rejected WorkId=%s: insufficient unreserved costs or storage"), *WorkId.ToString());
+		return INDEX_NONE;
+	}
+
+	FWorkRequest Request;
+	Request.WorkId = WorkId;
+	Request.Mode = EWorkRequestMode::Count;
+	Request.RemainingCount = Quantity;
+	Request.Priority = Priority;
+	return AddWorkRequest(Request);
+}
+
+TArray<FWorkOrderView> UWS_Work::GetCraftableWorkOrders() const
+{
+	TArray<FWorkOrderView> Views;
+	for (const TPair<FName, FWorkDefinitionRow>& Pair : WorkDefs)
+	{
+		const FWorkDefinitionRow& Def = Pair.Value;
+		if (Def.WorkCategory != EWorkCategory::Craft)
+		{
+			continue;
+		}
+		if (!Def.Rewards.ContainsByPredicate([](const FWorkReward& Reward) { return !Reward.ItemId.IsNone(); }))
+		{
+			continue;
+		}
+
+		FWorkOrderView& View = Views.AddDefaulted_GetRef();
+		View.WorkId = Def.WorkId;
+		View.DisplayName = Def.DisplayName;
+		View.Costs = Def.Costs;
+		View.Rewards = Def.Rewards;
+		View.bCanQueue = CanReserveWorkCosts(Def.Costs, 1) && CanStoreWorkRewards(Def.Rewards);
+		for (const FWorkRequest& Request : Queue)
+		{
+			if (Request.WorkId == Def.WorkId)
+			{
+				View.QueuedCount += FMath::Max(0, Request.RemainingCount);
+				View.CancelRequestId = FMath::Max(View.CancelRequestId, Request.RequestId);
+			}
+		}
+		for (const FWorkInstance& Instance : ActiveInstances)
+		{
+			if (Instance.WorkId == Def.WorkId)
+			{
+				++View.ActiveCount;
+				View.ActiveWorkerCount += Instance.Workers.Num();
+				View.ActiveMaxWorkers += Instance.MaxWorkers;
+				View.ActiveProgress += Instance.Progress;
+				View.ActiveTotalWork += Instance.TotalWork;
+				View.CancelRequestId = FMath::Max(View.CancelRequestId, Instance.RequestId);
+			}
+		}
+		View.bCanCancel = View.CancelRequestId != INDEX_NONE;
+	}
+	Views.Sort([](const FWorkOrderView& A, const FWorkOrderView& B) { return A.WorkId.LexicalLess(B.WorkId); });
+	return Views;
+}
+
+bool UWS_Work::GetWorkOrderView(FName WorkId, FWorkOrderView& OutView) const
+{
+	const FWorkDefinitionRow* Def = FindDef(WorkId);
+	if (!Def)
+	{
+		return false;
+	}
+
+	OutView = FWorkOrderView();
+	OutView.WorkId = Def->WorkId;
+	OutView.DisplayName = Def->DisplayName;
+	OutView.Costs = Def->Costs;
+	OutView.Rewards = Def->Rewards;
+	OutView.bCanQueue = CanReserveWorkCosts(Def->Costs, 1) && CanStoreWorkRewards(Def->Rewards);
+	for (const FWorkRequest& Request : Queue)
+	{
+		if (Request.WorkId == Def->WorkId)
+		{
+			OutView.QueuedCount += FMath::Max(0, Request.RemainingCount);
+			OutView.CancelRequestId = FMath::Max(OutView.CancelRequestId, Request.RequestId);
+		}
+	}
+	for (const FWorkInstance& Instance : ActiveInstances)
+	{
+		if (Instance.WorkId == Def->WorkId)
+		{
+			++OutView.ActiveCount;
+			OutView.ActiveWorkerCount += Instance.Workers.Num();
+			OutView.ActiveMaxWorkers += Instance.MaxWorkers;
+			OutView.ActiveProgress += Instance.Progress;
+			OutView.ActiveTotalWork += Instance.TotalWork;
+			OutView.CancelRequestId = FMath::Max(OutView.CancelRequestId, Instance.RequestId);
+		}
+	}
+	OutView.bCanCancel = OutView.CancelRequestId != INDEX_NONE;
+	return true;
+}
+
+void UWS_Work::GetOutstandingRequestIdsForWork(FName WorkId, TArray<int32>& OutRequestIds) const
+{
+	OutRequestIds.Reset();
+	for (const FWorkRequest& Request : Queue)
+	{
+		if (Request.WorkId == WorkId)
+		{
+			OutRequestIds.AddUnique(Request.RequestId);
+		}
+	}
+	for (const FWorkInstance& Instance : ActiveInstances)
+	{
+		if (Instance.WorkId == WorkId)
+		{
+			OutRequestIds.AddUnique(Instance.RequestId);
+		}
+	}
+	OutRequestIds.Sort();
+}
+
 bool UWS_Work::IsRequestSatisfied(const FWorkRequest& Req) const
 {
 	if (!EconomyObj)
@@ -161,6 +301,171 @@ bool UWS_Work::IsRequestSatisfied(const FWorkRequest& Req) const
 	}
 
 	return false;
+}
+
+bool UWS_Work::CanAffordWorkCosts(const TArray<FWorkCost>& Costs) const
+{
+	if (!EconomyObj || !ItemStorage)
+	{
+		return false;
+	}
+
+	TMap<FName, int32> RequiredResources;
+	TMap<FName, int32> RequiredItems;
+	for (const FWorkCost& Cost : Costs)
+	{
+		if (Cost.Amount <= 0)
+		{
+			continue;
+		}
+		if (!Cost.ResourceId.IsNone() && !Cost.ItemId.IsNone())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Work] Invalid cost with both ResourceId and ItemId"));
+			return false;
+		}
+		if (!Cost.ResourceId.IsNone()) RequiredResources.FindOrAdd(Cost.ResourceId) += Cost.Amount;
+		if (!Cost.ItemId.IsNone()) RequiredItems.FindOrAdd(Cost.ItemId) += Cost.Amount;
+	}
+
+	for (const TPair<FName, int32>& Pair : RequiredResources)
+	{
+		if (IEidosEconomyAccess::Execute_GetResourceAmount(EconomyObj, Pair.Key) < Pair.Value)
+		{
+			return false;
+		}
+	}
+	for (const TPair<FName, int32>& Pair : RequiredItems)
+	{
+		if (ItemStorage->GetStoredItemAmount(Pair.Key) < Pair.Value)
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool UWS_Work::CanReserveWorkCosts(const TArray<FWorkCost>& Costs, int32 Quantity) const
+{
+	if (!EconomyObj || !ItemStorage || Quantity <= 0)
+	{
+		return false;
+	}
+
+	TMap<FName, int32> RequiredResources;
+	TMap<FName, int32> RequiredItems;
+	const auto AddCosts = [&RequiredResources, &RequiredItems](const TArray<FWorkCost>& SourceCosts, int32 Multiplier)
+	{
+		for (const FWorkCost& Cost : SourceCosts)
+		{
+			if (Cost.Amount <= 0 || (!Cost.ResourceId.IsNone() && !Cost.ItemId.IsNone()))
+			{
+				continue;
+			}
+			if (!Cost.ResourceId.IsNone()) RequiredResources.FindOrAdd(Cost.ResourceId) += Cost.Amount * Multiplier;
+			if (!Cost.ItemId.IsNone()) RequiredItems.FindOrAdd(Cost.ItemId) += Cost.Amount * Multiplier;
+		}
+	};
+
+	// Pending requests have not paid their costs yet, so they reserve them for later execution.
+	for (const FWorkRequest& Request : Queue)
+	{
+		if (Request.Mode != EWorkRequestMode::Count || Request.RemainingCount <= 0)
+		{
+			continue;
+		}
+		if (const FWorkDefinitionRow* QueuedDef = FindDef(Request.WorkId))
+		{
+			AddCosts(QueuedDef->Costs, Request.RemainingCount);
+		}
+	}
+	AddCosts(Costs, Quantity);
+
+	for (const TPair<FName, int32>& Pair : RequiredResources)
+	{
+		if (IEidosEconomyAccess::Execute_GetResourceAmount(EconomyObj, Pair.Key) < Pair.Value)
+		{
+			return false;
+		}
+	}
+	for (const TPair<FName, int32>& Pair : RequiredItems)
+	{
+		if (ItemStorage->GetStoredItemAmount(Pair.Key) < Pair.Value)
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool UWS_Work::CanStoreWorkRewards(const TArray<FWorkReward>& Rewards) const
+{
+	if (!ItemStorage)
+	{
+		return false;
+	}
+
+	TArray<FItemStack> ItemRewards;
+	for (const FWorkReward& Reward : Rewards)
+	{
+		if (Reward.Amount <= 0)
+		{
+			continue;
+		}
+		if (!Reward.ResourceId.IsNone() && !Reward.ItemId.IsNone())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Work] Invalid reward with both ResourceId and ItemId"));
+			return false;
+		}
+		if (!Reward.ItemId.IsNone())
+		{
+			ItemRewards.Add({Reward.ItemId, Reward.Amount, 0.f});
+		}
+	}
+
+	return ItemStorage->CanStoreItemStacks(ItemRewards);
+}
+
+void UWS_Work::ConsumeWorkCosts(const TArray<FWorkCost>& Costs)
+{
+	TArray<FWorkCost> ResourceCosts;
+	for (const FWorkCost& Cost : Costs)
+	{
+		if (!Cost.ResourceId.IsNone())
+		{
+			ResourceCosts.Add(Cost);
+		}
+		else if (!Cost.ItemId.IsNone() && ItemStorage)
+		{
+			float RemovedQuality = 0.f;
+			ItemStorage->TryTakeStoredItem(Cost.ItemId, Cost.Amount, RemovedQuality);
+		}
+	}
+	if (EconomyObj && ResourceCosts.Num() > 0)
+	{
+		IEidosEconomyAccess::Execute_ConsumeCosts(EconomyObj, ResourceCosts);
+	}
+}
+
+void UWS_Work::GrantWorkRewards(const TArray<FWorkReward>& Rewards)
+{
+	TArray<FWorkReward> ResourceRewards;
+	for (const FWorkReward& Reward : Rewards)
+	{
+		if (!Reward.ResourceId.IsNone())
+		{
+			ResourceRewards.Add(Reward);
+		}
+		else if (!Reward.ItemId.IsNone() && ItemStorage)
+		{
+			ItemStorage->TryStoreItem(Reward.ItemId, Reward.Amount);
+		}
+	}
+	if (EconomyObj && ResourceRewards.Num() > 0)
+	{
+		IEidosEconomyAccess::Execute_GrantRewards(EconomyObj, ResourceRewards);
+	}
 }
 
 void UWS_Work::TrySpawnInstancesFromQueue()
@@ -199,8 +504,15 @@ void UWS_Work::TrySpawnInstancesFromQueue()
 			continue;
 		}
 
-		if (!IEidosEconomyAccess::Execute_CanAfford(EconomyObj, Def->Costs))
+		if (!CanAffordWorkCosts(Def->Costs))
 		{
+			// Count-mode recipe orders are explicit player commands, not standing orders.
+			// Do not leave an unaffordable request stuck in the queue forever.
+			if (Req.Mode == EWorkRequestMode::Count)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[Work] Removing unaffordable queued order id=%d work=%s"), Req.RequestId, *Req.WorkId.ToString());
+				Req.RemainingCount = 0;
+			}
 			continue;
 		}
 
@@ -316,7 +628,7 @@ void UWS_Work::ProgressInstances(float FixedDeltaSeconds)
 		}
 
 		Inst.Progress += TotalRateThisTick * FixedDeltaSeconds;
-		if (Inst.Progress >= Inst.TotalWork)
+		if (Inst.Progress >= Inst.TotalWork && CanStoreWorkRewards(Def->Rewards))
 		{
 			const bool bAlreadyQueued = PlannedCompletedInstances.ContainsByPredicate([&](const FWorkInstance& Existing)
 			{
@@ -339,10 +651,8 @@ void UWS_Work::HandleInstanceCompleted(const FWorkInstance& Inst)
 		return;
 	}
 
-	if (EconomyObj)
-	{
-		IEidosEconomyAccess::Execute_GrantRewards(EconomyObj, Def->Rewards);
-	}
+	GrantWorkRewards(Def->Rewards);
+	OnWorkCompleted.Broadcast(Inst.RequestId, Inst.WorkId);
 
 	if (PopulationObj)
 	{
@@ -368,29 +678,73 @@ const FWorkDefinitionRow* UWS_Work::FindDef(FName WorkId) const
 
 bool UWS_Work::CancelWorkRequest(int32 RequestId)
 {
-	const int32 Removed = Queue.RemoveAll([&](const FWorkRequest& Request)
+	if (RequestId == INDEX_NONE)
+	{
+		return false;
+	}
+
+	const int32 RemovedQueued = Queue.RemoveAll([&](const FWorkRequest& Request)
 	{
 		return Request.RequestId == RequestId;
 	});
 
-	if (Removed > 0)
+	TArray<FWorkInstance> CancelledInstances;
+	TSet<int32> CancelledInstanceIds;
+	for (const FWorkInstance& Instance : ActiveInstances)
 	{
-		BroadcastRequestState(RequestId, EWorkRequestLifecycleState::Cancelled);
-		return true;
+		if (Instance.RequestId == RequestId)
+		{
+			CancelledInstances.Add(Instance);
+			CancelledInstanceIds.Add(Instance.InstanceId);
+		}
 	}
 
-	const bool bHasActive = ActiveInstances.ContainsByPredicate([&](const FWorkInstance& Instance)
+	for (const FWorkInstance& Instance : PlannedNewInstances)
+	{
+		if (Instance.RequestId == RequestId)
+		{
+			CancelledInstanceIds.Add(Instance.InstanceId);
+		}
+	}
+
+	const int32 RemovedActive = ActiveInstances.RemoveAll([&](const FWorkInstance& Instance)
 	{
 		return Instance.RequestId == RequestId;
 	});
-
-	if (bHasActive)
+	const int32 RemovedPlanned = PlannedNewInstances.RemoveAll([&](const FWorkInstance& Instance)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Work] CancelWorkRequest id=%d denied: active instance exists"), RequestId);
+		return Instance.RequestId == RequestId;
+	});
+	PlannedCompletedInstances.RemoveAll([&](const FWorkInstance& Instance)
+	{
+		return Instance.RequestId == RequestId;
+	});
+	PlannedPageAssignments.RemoveAll([&](const FPlannedPageAssignment& Assignment)
+	{
+		return CancelledInstanceIds.Contains(Assignment.InstanceId);
+	});
+
+	if (RemovedQueued == 0 && RemovedActive == 0 && RemovedPlanned == 0)
+	{
 		return false;
 	}
 
-	return false;
+	// Costs are consumed when an instance starts. Aborting does not refund them,
+	// but it immediately releases every Page that was working on this request.
+	if (PopulationObj)
+	{
+		for (const FWorkInstance& Instance : CancelledInstances)
+		{
+			for (int32 PageId : Instance.Workers)
+			{
+				IEidosPopulationAccess::Execute_ClearPageWorkAssignment(PopulationObj, PageId, Instance.InstanceId);
+			}
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[Work] Cancelled request id=%d queued=%d active=%d planned=%d"), RequestId, RemovedQueued, RemovedActive, RemovedPlanned);
+	BroadcastRequestState(RequestId, EWorkRequestLifecycleState::Cancelled);
+	return true;
 }
 
 FVector UWS_Work::ResolveSiteLocationForWork(const FWorkDefinitionRow& Def) const

@@ -12,8 +12,10 @@
 #include "WS_Work.generated.h"
 
 class USimCommandBuffer;
+class UWS_ItemStorage;
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnWorkRequestStateChanged, int32, EWorkRequestLifecycleState);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnWorkCompleted, int32, FName);
 
 USTRUCT()
 struct FPlannedPageAssignment
@@ -54,6 +56,15 @@ public:
 	UFUNCTION(BlueprintCallable)
 	int32 AddWorkRequest(const FWorkRequest& InReq);
 
+	/** Convenience entry point for UI: queues the specified DT_Work row a number of times. */
+	UFUNCTION(BlueprintCallable)
+	int32 QueueWorkById(FName WorkId, int32 Quantity = 1, int32 Priority = 0);
+
+	UFUNCTION(BlueprintPure)
+	TArray<FWorkOrderView> GetCraftableWorkOrders() const;
+	bool GetWorkOrderView(FName WorkId, FWorkOrderView& OutView) const;
+	void GetOutstandingRequestIdsForWork(FName WorkId, TArray<int32>& OutRequestIds) const;
+
 	UFUNCTION(BlueprintCallable)
 	bool CancelWorkRequest(int32 RequestId);
 
@@ -70,6 +81,7 @@ public:
 	void LoadWorkDefs();
 
 	FOnWorkRequestStateChanged OnWorkRequestStateChanged;
+	FOnWorkCompleted OnWorkCompleted;
 
 protected:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
@@ -106,10 +118,17 @@ private:
 	// Cached subsystem pointers (interfaces)
 	UPROPERTY() UObject* EconomyObj = nullptr;
 	UPROPERTY() UObject* PopulationObj = nullptr;
+	UPROPERTY() TObjectPtr<UWS_ItemStorage> ItemStorage = nullptr;
 
 	// ---- helpers ----
 	const FWorkDefinitionRow* FindDef(FName WorkId) const;
 	bool IsRequestSatisfied(const FWorkRequest& Req) const;
+	bool CanAffordWorkCosts(const TArray<FWorkCost>& Costs) const;
+	/** Includes costs reserved by pending Count-mode orders, preventing over-queuing. */
+	bool CanReserveWorkCosts(const TArray<FWorkCost>& Costs, int32 Quantity) const;
+	bool CanStoreWorkRewards(const TArray<FWorkReward>& Rewards) const;
+	void ConsumeWorkCosts(const TArray<FWorkCost>& Costs);
+	void GrantWorkRewards(const TArray<FWorkReward>& Rewards);
 
 	void TrySpawnInstancesFromQueue();
 	void UpdateAssignments(float FixedDeltaSeconds);

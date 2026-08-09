@@ -7,6 +7,8 @@
 #include "Combat/WS_CombatDirector.h"
 #include "Player/Camera/CameraModeComponent.h"
 #include "Entities/Page/PageCharacter.h"
+#include "Entities/Items/EquipmentComponent.h"
+#include "Entities/Items/InventoryComponent.h"
 #include "Simulation/WS_SimulationOrchestrator.h"
 #include "UI/GIS_UIRouter.h"
 
@@ -21,6 +23,9 @@
 #include "World/Settlement/Building/ConstructionSiteActor.h"
 #include "World/Dungeon/DungeonCoreActor.h"
 #include "World/Interaction/WorldInteractionInterface.h"
+#include "World/Interaction/WorldBlockActor.h"
+#include "UI/HUD/WorldInteraction/WorldInteractionRadialWidget.h"
+#include "UI/HUD/WorldInteraction/WorldInteractionFocusWidget.h"
 #include "World/Dungeon/DungeonReturnPortalActor.h"
 #include "World/Settlement/Portal/PortalActor.h"
 #include "World/Settlement/TerritoryChunkActor.h"
@@ -28,6 +33,7 @@
 #include "World/Settlement/WS_SettlementSpace.h"
 #include "Data/GIS_DataRegistry.h"
 #include "Data/Definitions/BuildingDefinitionRow.h"
+#include "Data/Definitions/ItemDefinitionRow.h"
 #include "Data/Definitions/SkillDefinitionRow.h"
 #include "Entities/Page/Components/StatsComponent.h"
 #include "Iris/ReplicationState/PropertyNetSerializerInfoRegistry.h"
@@ -51,17 +57,20 @@ void AEidosPlayerController::Tick(float DeltaTime)
 	{
 		UpdateTerritoryPreview();
 	}
+	else if (bInBlockPlacementMode)
+	{
+		UpdateBlockPreview();
+	}
+	else
+	{
+		UpdateWorldInteractionFocus();
+	}
 }
 
 
 void AEidosPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
-
-	UE_LOG(LogTemp, Warning, TEXT("[PC] BeginPlay: CanEver=%d Enabled=%d StartEnabled=%d"),
-		PrimaryActorTick.bCanEverTick,
-		IsActorTickEnabled(),
-		PrimaryActorTick.bStartWithTickEnabled);
 
 	if (UWorld* World = GetWorld())
 	{
@@ -87,13 +96,6 @@ void AEidosPlayerController::BeginPlay()
 	{
 		TArray<UCameraModeComponent*> Comps;
 		GetComponents<UCameraModeComponent>(Comps);
-
-		UE_LOG(LogTemp, Warning, TEXT("[PC] CameraModeComponent count=%d"), Comps.Num());
-		for (UCameraModeComponent* C : Comps)
-		{
-			UE_LOG(LogTemp, Warning, TEXT("  - CamMode %s this=%p TickEnabled=%d"),
-				*GetNameSafe(C), C, C ? C->IsComponentTickEnabled() : 0);
-		}
 
 		if (Comps.Num() > 0)
 		{
@@ -124,8 +126,6 @@ void AEidosPlayerController::BeginPlay()
 				}
 			}
 
-			UE_LOG(LogTemp, Warning, TEXT("[PC] CameraMode picked: %s this=%p"),
-				*GetNameSafe(CameraMode), CameraMode);
 		}
 	}
 }
@@ -142,6 +142,8 @@ void AEidosPlayerController::SetupInputComponent()
 	EI->BindAction(IA_Zoom,     ETriggerEvent::Triggered, this, &AEidosPlayerController::OnZoom);
 	EI->BindAction(IA_PrimaryClick, ETriggerEvent::Started, this, &AEidosPlayerController::OnPrimaryClick);
 	EI->BindAction(IA_PrimaryClick, ETriggerEvent::Triggered, this, &AEidosPlayerController::OnPrimaryClickHeld);
+	EI->BindAction(IA_PrimaryClick, ETriggerEvent::Completed, this, &AEidosPlayerController::OnPrimaryClickCompleted);
+	EI->BindAction(IA_PrimaryClick, ETriggerEvent::Canceled, this, &AEidosPlayerController::OnPrimaryClickCompleted);
 	InputComponent->BindKey(EKeys::F, IE_Pressed, this, &AEidosPlayerController::OnInteractPressed);
 	InputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AEidosPlayerController::OnSecondaryClick);
 	InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AEidosPlayerController::OnToggleFirstPersonUIFocus);
@@ -316,8 +318,6 @@ void AEidosPlayerController::HandleWorldSimReady()
 		UE_LOG(LogTemp, Warning, TEXT("[PC] Still no PageCharacter on WorldSimReady."));
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[PC] Pawn=%s ViewTarget=%s"), *GetNameSafe(GetPawn()), *GetNameSafe(GetViewTarget()));
-	UE_LOG(LogTemp, Warning, TEXT("[PC] SelectedPage Is %s"), *GetNameSafe(CameraMode->GetSelectedPage()));
 }
 
 void AEidosPlayerController::OnLook(const FInputActionValue& Value)
@@ -338,7 +338,6 @@ void AEidosPlayerController::OnLook(const FInputActionValue& Value)
 
 	if (ViewMode == EPageViewMode::FirstPerson)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[PC] OnLook Working"));
 		AddYawInput(V.X);
 		AddPitchInput(V.Y);
 	}
@@ -370,7 +369,10 @@ void AEidosPlayerController::OnZoom(const FInputActionValue& Value)
 
 void AEidosPlayerController::OnPrimaryClick(const FInputActionValue& Value)
 {
-	UE_LOG(LogTemp, Warning, TEXT("[PC] OnClick."))
+	if (ActiveWorldInteractionRadial && ActiveWorldInteractionRadial->IsInViewport())
+	{
+		return;
+	}
 	if (bInBuildPlacementMode)
 	{
 		ConfirmBuildPlacement();
@@ -380,6 +382,12 @@ void AEidosPlayerController::OnPrimaryClick(const FInputActionValue& Value)
 	if (bInTerritoryPlacementMode)
 	{
 		ConfirmTerritoryExpansionPlacement();
+		return;
+	}
+
+	if (bInBlockPlacementMode)
+	{
+		ConfirmBlockPlacement();
 		return;
 	}
 
@@ -417,6 +425,15 @@ void AEidosPlayerController::OnPrimaryClick(const FInputActionValue& Value)
 		}
 	}
 
+	if (!SelectedWorldInteractionId.IsNone())
+	{
+		if (ExecuteSelectedWorldInteraction() && GetWorld())
+		{
+			LastWorldInteractionTime = GetWorld()->GetTimeSeconds();
+		}
+		return;
+	}
+
 	if (AActor* FocusedActor = FindFocusedWorldInteractionActor())
 	{
 		if (ExecuteDefaultWorldInteraction(FocusedActor) && GetWorld())
@@ -430,7 +447,11 @@ void AEidosPlayerController::OnPrimaryClickHeld(const FInputActionValue& Value)
 {
 	// Placement and combat consume primary input differently. Repeating those actions while held
 	// would cause duplicate placement or combat target commands, so only repeat world interactions.
-	if (IsInPlacementMode() || bFirstPersonUIFocusMode || !GetWorld())
+	if (IsInPlacementMode() || bFirstPersonUIFocusMode || bSuppressWorldInteractionRepeatUntilPrimaryReleased || !GetWorld())
+	{
+		return;
+	}
+	if (ActiveWorldInteractionRadial && ActiveWorldInteractionRadial->IsInViewport())
 	{
 		return;
 	}
@@ -446,28 +467,33 @@ void AEidosPlayerController::OnPrimaryClickHeld(const FInputActionValue& Value)
 		return;
 	}
 
-	if (AActor* FocusedActor = FindFocusedWorldInteractionActor(); ExecuteDefaultWorldInteraction(FocusedActor))
+	const bool bExecuted = !SelectedWorldInteractionId.IsNone()
+		? ExecuteSelectedWorldInteraction()
+		: ExecuteDefaultWorldInteraction(FindFocusedWorldInteractionActor());
+	if (bExecuted)
 	{
 		LastWorldInteractionTime = Now;
 	}
 }
 
+void AEidosPlayerController::OnPrimaryClickCompleted(const FInputActionValue& Value)
+{
+	bSuppressWorldInteractionRepeatUntilPrimaryReleased = false;
+}
+
 void AEidosPlayerController::OnSecondaryClick()
 {
+	if (bInBlockPlacementMode)
+	{
+		CancelBlockPlacement();
+		return;
+	}
+
 	if (IsInPlacementMode() || bFirstPersonUIFocusMode || !GetWorld())
 	{
 		return;
 	}
 
-	const float Now = GetWorld()->GetTimeSeconds();
-	const bool bIsDoubleClick = Now - LastSecondaryClickTime <= ContextInteractionDoubleClickSeconds;
-	LastSecondaryClickTime = Now;
-	if (!bIsDoubleClick)
-	{
-		return;
-	}
-
-	LastSecondaryClickTime = -FLT_MAX;
 	if (AActor* FocusedActor = FindFocusedWorldInteractionActor())
 	{
 		OpenWorldInteractionRadial(FocusedActor);
@@ -476,6 +502,12 @@ void AEidosPlayerController::OnSecondaryClick()
 
 void AEidosPlayerController::OnToggleFirstPersonUIFocus()
 {
+	if (ActiveWorldInteractionRadial && ActiveWorldInteractionRadial->IsInViewport())
+	{
+		CloseWorldInteractionRadial();
+		return;
+	}
+
 	if (!CameraMode)
 	{
 		return;
@@ -755,6 +787,7 @@ void AEidosPlayerController::BeginBuildPlacement(FName BuildingId)
 	}
 
 	CancelTerritoryExpansionPlacement();
+	CancelBlockPlacement();
 	CancelBuildPlacement();
 
 	bInBuildPlacementMode = true;
@@ -783,6 +816,7 @@ void AEidosPlayerController::CancelBuildPlacement()
 void AEidosPlayerController::BeginTerritoryExpansionPlacement()
 {
 	CancelBuildPlacement();
+	CancelBlockPlacement();
 	CancelTerritoryExpansionPlacement();
 
 	bInTerritoryPlacementMode = true;
@@ -1114,7 +1148,7 @@ void AEidosPlayerController::ConfirmTerritoryExpansionPlacement()
 
 bool AEidosPlayerController::IsInPlacementMode() const
 {
-	return bInBuildPlacementMode || bInTerritoryPlacementMode;
+	return bInBuildPlacementMode || bInTerritoryPlacementMode || bInBlockPlacementMode;
 }
 
 FName AEidosPlayerController::GetPendingBuildingId() const
@@ -1125,6 +1159,162 @@ FName AEidosPlayerController::GetPendingBuildingId() const
 bool AEidosPlayerController::IsInTerritoryPlacementMode() const
 {
 	return bInTerritoryPlacementMode;
+}
+
+bool AEidosPlayerController::BeginBlockPlacement(FName ItemId)
+{
+	APageCharacter* SelectedPage = GetSelectedPage();
+	UInventoryComponent* Inventory = SelectedPage ? SelectedPage->GetInventory() : nullptr;
+	UGIS_DataRegistry* Registry = GetWorld() && GetWorld()->GetGameInstance()
+		? GetWorld()->GetGameInstance()->GetSubsystem<UGIS_DataRegistry>() : nullptr;
+	const bool bHasItem = Inventory && Inventory->GetStacks().ContainsByPredicate(
+		[ItemId](const FItemStack& Stack) { return Stack.ItemId == ItemId && Stack.Quantity > 0; });
+	const FItemDefinitionRow* ItemDef = Registry && Registry->EnsureReadySync() ? Registry->GetItemDef(ItemId) : nullptr;
+	if (!bHasItem || !ItemDef || ItemDef->PlacedBlockClass.IsNull())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BlockPlacement] Cannot place Item=%s. It is missing from inventory or has no PlacedBlockClass."), *ItemId.ToString());
+		return false;
+	}
+
+	CancelBuildPlacement();
+	CancelTerritoryExpansionPlacement();
+	CancelBlockPlacement();
+	bInBlockPlacementMode = true;
+	PendingBlockItemId = ItemId;
+	SpawnOrRefreshBlockPreview();
+	UpdateBlockPreview();
+	return BlockPreviewActor.IsValid();
+}
+
+void AEidosPlayerController::CancelBlockPlacement()
+{
+	bInBlockPlacementMode = false;
+	bBlockPlacementPreviewValid = false;
+	PendingBlockItemId = NAME_None;
+	if (BlockPreviewActor.IsValid())
+	{
+		BlockPreviewActor->Destroy();
+		BlockPreviewActor = nullptr;
+	}
+}
+
+void AEidosPlayerController::SpawnOrRefreshBlockPreview()
+{
+	if (BlockPreviewActor.IsValid() || PendingBlockItemId.IsNone() || !GetWorld())
+	{
+		return;
+	}
+	UGIS_DataRegistry* Registry = GetWorld()->GetGameInstance()
+		? GetWorld()->GetGameInstance()->GetSubsystem<UGIS_DataRegistry>() : nullptr;
+	const FItemDefinitionRow* ItemDef = Registry && Registry->EnsureReadySync()
+		? Registry->GetItemDef(PendingBlockItemId) : nullptr;
+	TSubclassOf<AWorldBlockActor> BlockClass = ItemDef ? ItemDef->PlacedBlockClass.LoadSynchronous() : nullptr;
+	if (!BlockClass)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BlockPlacement] Missing PlacedBlockClass for Item=%s"), *PendingBlockItemId.ToString());
+		return;
+	}
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	if (AWorldBlockActor* Preview = GetWorld()->SpawnActor<AWorldBlockActor>(BlockClass, FVector::ZeroVector, FRotator::ZeroRotator, Params))
+	{
+		Preview->SetPlacementPreview(true, false);
+		BlockPreviewActor = Preview;
+	}
+}
+
+void AEidosPlayerController::UpdateBlockPreview()
+{
+	if (!bInBlockPlacementMode || PendingBlockItemId.IsNone() || !GetWorld())
+	{
+		return;
+	}
+	if (!BlockPreviewActor.IsValid())
+	{
+		SpawnOrRefreshBlockPreview();
+		if (!BlockPreviewActor.IsValid()) return;
+	}
+
+	APawn* ControlledPawn = GetPawn();
+	if (!ControlledPawn) return;
+	const FVector Start = PlayerCameraManager ? PlayerCameraManager->GetCameraLocation() : ControlledPawn->GetActorLocation();
+	const FVector Direction = (PlayerCameraManager ? PlayerCameraManager->GetActorForwardVector() : ControlledPawn->GetActorForwardVector()).GetSafeNormal();
+	FHitResult Hit;
+	FCollisionQueryParams TraceParams(SCENE_QUERY_STAT(BlockPlacementTrace), false, ControlledPawn);
+	TraceParams.AddIgnoredActor(BlockPreviewActor.Get());
+	const bool bHasSurface = GetWorld()->LineTraceSingleByChannel(Hit, Start, Start + Direction * BlockPlacementMaxDistance, ECC_Visibility, TraceParams);
+	if (!bHasSurface)
+	{
+		bBlockPlacementPreviewValid = false;
+		BlockPreviewActor->SetPlacementPreview(true, false);
+		return;
+	}
+
+	const FVector Normal = Hit.ImpactNormal.GetSafeNormal();
+	const FVector Extent = BlockPreviewActor->GetPlacementBoundsExtent();
+	const float SurfaceOffset = FVector::DotProduct(Extent, Normal.GetAbs()) + 2.f;
+	const FVector PlaceLocation = Hit.ImpactPoint + Normal * SurfaceOffset;
+	BlockPreviewActor->SetActorLocation(PlaceLocation);
+	BlockPreviewActor->SetActorRotation(FRotator::ZeroRotator);
+
+	FCollisionObjectQueryParams ObjectParams;
+	ObjectParams.AddObjectTypesToQuery(ECC_WorldDynamic);
+	ObjectParams.AddObjectTypesToQuery(ECC_PhysicsBody);
+	FCollisionQueryParams OverlapParams(SCENE_QUERY_STAT(BlockPlacementOverlap), false, ControlledPawn);
+	OverlapParams.AddIgnoredActor(BlockPreviewActor.Get());
+	const bool bBlocked = GetWorld()->OverlapAnyTestByObjectType(
+		PlaceLocation, FQuat::Identity, ObjectParams, FCollisionShape::MakeBox(Extent * 0.95f), OverlapParams);
+	bBlockPlacementPreviewValid = !bBlocked;
+	BlockPreviewActor->SetPlacementPreview(true, bBlockPlacementPreviewValid);
+}
+
+void AEidosPlayerController::ConfirmBlockPlacement()
+{
+	if (!bInBlockPlacementMode || !bBlockPlacementPreviewValid || !BlockPreviewActor.IsValid())
+	{
+		return;
+	}
+	APageCharacter* SelectedPage = GetSelectedPage();
+	UInventoryComponent* Inventory = SelectedPage ? SelectedPage->GetInventory() : nullptr;
+	UGIS_DataRegistry* Registry = GetWorld() && GetWorld()->GetGameInstance()
+		? GetWorld()->GetGameInstance()->GetSubsystem<UGIS_DataRegistry>() : nullptr;
+	const FItemDefinitionRow* ItemDef = Registry && Registry->EnsureReadySync()
+		? Registry->GetItemDef(PendingBlockItemId) : nullptr;
+	TSubclassOf<AWorldBlockActor> BlockClass = ItemDef ? ItemDef->PlacedBlockClass.LoadSynchronous() : nullptr;
+	if (!Inventory || !BlockClass)
+	{
+		CancelBlockPlacement();
+		return;
+	}
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	AWorldBlockActor* PlacedBlock = GetWorld()->SpawnActor<AWorldBlockActor>(BlockClass,
+		BlockPreviewActor->GetActorLocation(), BlockPreviewActor->GetActorRotation(), Params);
+	if (!PlacedBlock)
+	{
+		return;
+	}
+
+	float IgnoredQuality = 0.f;
+	if (Inventory->TryRemoveItem(PendingBlockItemId, 1, IgnoredQuality) != 1)
+	{
+		PlacedBlock->Destroy();
+		CancelBlockPlacement();
+		return;
+	}
+	PlacedBlock->SetPlacementPreview(false);
+	UE_LOG(LogTemp, Log, TEXT("[BlockPlacement] Placed Item=%s at %s"), *PendingBlockItemId.ToString(), *PlacedBlock->GetActorLocation().ToString());
+
+	const bool bHasMore = Inventory->GetStacks().ContainsByPredicate([this](const FItemStack& Stack)
+	{
+		return Stack.ItemId == PendingBlockItemId && Stack.Quantity > 0;
+	});
+	if (!bHasMore)
+	{
+		CancelBlockPlacement();
+	}
 }
 
 AActor* AEidosPlayerController::FindFocusedInteractActor() const
@@ -1316,6 +1506,18 @@ AActor* AEidosPlayerController::FindFocusedWorldInteractionActor() const
 
 bool AEidosPlayerController::ExecuteDefaultWorldInteraction(AActor* TargetActor)
 {
+	TArray<FWorldInteractionOption> Options;
+	FWorldInteractionOption PreparedOption;
+	APageCharacter* SelectedPage = GetSelectedPage();
+	return SelectedPage && ResolvePreparedWorldInteraction(TargetActor, Options, PreparedOption)
+		&& IWorldInteractionInterface::Execute_ExecuteWorldInteraction(TargetActor, SelectedPage, PreparedOption.InteractionId);
+}
+
+bool AEidosPlayerController::ResolvePreparedWorldInteraction(AActor* TargetActor,
+	TArray<FWorldInteractionOption>& OutOptions, FWorldInteractionOption& OutPreparedOption) const
+{
+	OutOptions.Reset();
+	OutPreparedOption = FWorldInteractionOption{};
 	APageCharacter* SelectedPage = GetSelectedPage();
 	if (!SelectedPage || !IsValid(TargetActor)
 		|| !TargetActor->GetClass()->ImplementsInterface(UWorldInteractionInterface::StaticClass()))
@@ -1323,10 +1525,149 @@ bool AEidosPlayerController::ExecuteDefaultWorldInteraction(AActor* TargetActor)
 		return false;
 	}
 
+	IWorldInteractionInterface::Execute_GetAvailableWorldInteractions(TargetActor, SelectedPage, OutOptions);
+	if (OutOptions.IsEmpty()) return false;
+
+	// A radial selection follows its Page, not the block that was originally clicked.
+	// If the focused block offers the selected action, keep it armed; otherwise the
+	// normal per-block default resolution below provides a safe fallback.
+	if (SelectedWorldInteractionPage.Get() == SelectedPage && !SelectedWorldInteractionId.IsNone())
+	{
+		if (const FWorldInteractionOption* SelectedOption = OutOptions.FindByPredicate(
+			[this](const FWorldInteractionOption& Option)
+			{
+				return Option.InteractionId == SelectedWorldInteractionId;
+			}))
+		{
+			OutPreparedOption = *SelectedOption;
+			return true;
+		}
+	}
+
+	TArray<const FWorldInteractionOption*> Candidates;
+	for (const FWorldInteractionOption& Option : OutOptions)
+	{
+		if (Option.bIsDefault) Candidates.Add(&Option);
+	}
+	if (Candidates.IsEmpty())
+	{
+		for (const FWorldInteractionOption& Option : OutOptions) Candidates.Add(&Option);
+	}
+
+	const UEquipmentComponent* Equipment = SelectedPage->GetEquipment();
+	if (Equipment)
+	{
+		for (const EPageEquipmentSlot HandSlot : { EPageEquipmentSlot::RightHand, EPageEquipmentSlot::LeftHand })
+		{
+			for (const FWorldInteractionOption* Option : Candidates)
+			{
+				if (Option && !Option->RequiredToolTag.IsNone()
+					&& Equipment->HasToolTagInSlot(HandSlot, Option->RequiredToolTag))
+				{
+					OutPreparedOption = *Option;
+					return true;
+				}
+			}
+		}
+	}
+
+	for (const FWorldInteractionOption* Option : Candidates)
+	{
+		if (Option && Option->RequiredToolTag.IsNone())
+		{
+			OutPreparedOption = *Option;
+			return true;
+		}
+	}
+
+	if (Equipment)
+	{
+		for (const FWorldInteractionOption* Option : Candidates)
+		{
+			if (Option && Equipment->CanUseToolForInteraction(Option->RequiredToolTag))
+			{
+				OutPreparedOption = *Option;
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+FText AEidosPlayerController::FormatPreparedWorldInteraction(const FWorldInteractionOption& Option) const
+{
+	const FText ActionName = Option.DisplayName.IsEmpty() ? FText::FromName(Option.InteractionId) : Option.DisplayName;
+	if (Option.RequiredToolTag.IsNone()) return ActionName;
+
+	FString ToolName = Option.RequiredToolTag.ToString();
+	FString Prefix;
+	if (ToolName.Split(TEXT("."), &Prefix, &ToolName, ESearchCase::IgnoreCase, ESearchDir::FromEnd))
+	{
+		// Use the human-readable final tag segment: Tool.Pickaxe becomes Pickaxe.
+	}
+	return FText::Format(FText::FromString(TEXT("{0} ({1})")), ActionName, FText::FromString(ToolName));
+}
+
+void AEidosPlayerController::UpdateWorldInteractionFocus()
+{
+	if (bFirstPersonUIFocusMode || (ActiveWorldInteractionRadial && ActiveWorldInteractionRadial->IsInViewport()))
+	{
+		ClearWorldInteractionFocus();
+		return;
+	}
+
+	AActor* TargetActor = FindFocusedWorldInteractionActor();
 	TArray<FWorldInteractionOption> Options;
-	IWorldInteractionInterface::Execute_GetAvailableWorldInteractions(TargetActor, SelectedPage, Options);
-	const FWorldInteractionOption* DefaultOption = Options.FindByPredicate([](const FWorldInteractionOption& Option) { return Option.bIsDefault; });
-	return DefaultOption && IWorldInteractionInterface::Execute_ExecuteWorldInteraction(TargetActor, SelectedPage, DefaultOption->InteractionId);
+	FWorldInteractionOption PreparedOption;
+	bool bHasPreparedAction = ResolvePreparedWorldInteraction(TargetActor, Options, PreparedOption);
+	AWorldBlockActor* FocusedBlock = Cast<AWorldBlockActor>(TargetActor);
+	if (!FocusedBlock || Options.IsEmpty())
+	{
+		ClearWorldInteractionFocus();
+		return;
+	}
+
+	if (FocusedWorldInteractionActor.Get() != FocusedBlock)
+	{
+		ClearWorldInteractionFocus();
+		FocusedWorldInteractionActor = FocusedBlock;
+		FocusedBlock->SetInteractionFocused(true);
+	}
+
+	if (!WorldInteractionFocusClass) return;
+	if (!ActiveWorldInteractionFocus)
+	{
+		ActiveWorldInteractionFocus = CreateWidget<UWorldInteractionFocusWidget>(this, WorldInteractionFocusClass);
+		if (!ActiveWorldInteractionFocus) return;
+		ActiveWorldInteractionFocus->AddToViewport(90);
+		ActiveWorldInteractionFocus->SetAlignmentInViewport(FVector2D(0.5f, 1.f));
+	}
+
+	FVector2D ScreenPosition;
+	if (!ProjectWorldLocationToScreen(FocusedBlock->GetInteractionFocusLocation(), ScreenPosition, true))
+	{
+		ActiveWorldInteractionFocus->SetVisibility(ESlateVisibility::Collapsed);
+		return;
+	}
+
+	ActiveWorldInteractionFocus->ShowFocus(
+		FocusedBlock->GetBlockDisplayName(),
+		bHasPreparedAction ? FormatPreparedWorldInteraction(PreparedOption) : FText::FromString(TEXT("NO USABLE ACTION")));
+	ActiveWorldInteractionFocus->SetPositionInViewport(ScreenPosition, false);
+	ActiveWorldInteractionFocus->SetVisibility(ESlateVisibility::HitTestInvisible);
+}
+
+void AEidosPlayerController::ClearWorldInteractionFocus()
+{
+	if (AWorldBlockActor* PreviousBlock = Cast<AWorldBlockActor>(FocusedWorldInteractionActor.Get()))
+	{
+		PreviousBlock->SetInteractionFocused(false);
+	}
+	FocusedWorldInteractionActor.Reset();
+	if (ActiveWorldInteractionFocus)
+	{
+		ActiveWorldInteractionFocus->SetVisibility(ESlateVisibility::Collapsed);
+	}
 }
 
 bool AEidosPlayerController::OpenWorldInteractionRadial(AActor* TargetActor)
@@ -1347,7 +1688,47 @@ bool AEidosPlayerController::OpenWorldInteractionRadial(AActor* TargetActor)
 
 	ContextInteractionTarget = TargetActor;
 	ContextInteractionOptions = MoveTemp(Options);
+	ShowWorldInteractionRadialWidget(TargetActor, ContextInteractionOptions);
 	OnWorldInteractionRadialRequested(TargetActor, ContextInteractionOptions);
+	return true;
+}
+
+bool AEidosPlayerController::ShowWorldInteractionRadialWidget(AActor* TargetActor, const TArray<FWorldInteractionOption>& Options)
+{
+	if (!WorldInteractionRadialClass)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[WorldInteraction] WorldInteractionRadialClass is not assigned in %s"), *GetName());
+		return false;
+	}
+
+	if (ActiveWorldInteractionRadial)
+	{
+		ActiveWorldInteractionRadial->RemoveFromParent();
+		ActiveWorldInteractionRadial = nullptr;
+	}
+
+	ActiveWorldInteractionRadial = CreateWidget<UWorldInteractionRadialWidget>(this, WorldInteractionRadialClass);
+	if (!ActiveWorldInteractionRadial) return false;
+
+	float CursorX = 0.f;
+	float CursorY = 0.f;
+	if (!GetMousePosition(CursorX, CursorY))
+	{
+		CursorX = 640.f;
+		CursorY = 360.f;
+	}
+
+	ActiveWorldInteractionRadial->AddToViewport(200);
+	ActiveWorldInteractionRadial->ShowRadial(this, TargetActor, Options, FVector2D(CursorX, CursorY));
+
+	FInputModeGameAndUI InputMode;
+	InputMode.SetWidgetToFocus(ActiveWorldInteractionRadial->TakeWidget());
+	InputMode.SetHideCursorDuringCapture(false);
+	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	SetInputMode(InputMode);
+	bShowMouseCursor = true;
+	bEnableClickEvents = true;
+	bEnableMouseOverEvents = true;
 	return true;
 }
 
@@ -1364,11 +1745,56 @@ bool AEidosPlayerController::ExecuteContextWorldInteraction(FName InteractionId)
 	return bSuccess;
 }
 
+bool AEidosPlayerController::SelectContextWorldInteraction(FName InteractionId)
+{
+	APageCharacter* SelectedPage = GetSelectedPage();
+	AActor* TargetActor = ContextInteractionTarget.Get();
+	const bool bIsKnownOption = ContextInteractionOptions.ContainsByPredicate(
+		[InteractionId](const FWorldInteractionOption& Option) { return Option.InteractionId == InteractionId; });
+	if (!SelectedPage || !TargetActor || !bIsKnownOption)
+	{
+		return false;
+	}
+
+	SelectedWorldInteractionPage = SelectedPage;
+	SelectedWorldInteractionId = InteractionId;
+	CloseWorldInteractionRadial();
+	UE_LOG(LogTemp, Log, TEXT("[WorldInteraction] Armed '%s' for %s"),
+		*InteractionId.ToString(), *GetNameSafe(SelectedPage));
+	return true;
+}
+
+bool AEidosPlayerController::ExecuteSelectedWorldInteraction()
+{
+	APageCharacter* SelectedPage = GetSelectedPage();
+	if (!SelectedPage || SelectedWorldInteractionPage.Get() != SelectedPage)
+	{
+		ClearSelectedWorldInteraction();
+		return ExecuteDefaultWorldInteraction(FindFocusedWorldInteractionActor());
+	}
+
+	// ResolvePreparedWorldInteraction keeps the armed action when this block supports it,
+	// and otherwise resolves the focused block's own default action.
+	return ExecuteDefaultWorldInteraction(FindFocusedWorldInteractionActor());
+}
+
+void AEidosPlayerController::ClearSelectedWorldInteraction()
+{
+	SelectedWorldInteractionPage.Reset();
+	SelectedWorldInteractionId = NAME_None;
+}
+
 void AEidosPlayerController::CloseWorldInteractionRadial()
 {
+	if (ActiveWorldInteractionRadial)
+	{
+		ActiveWorldInteractionRadial->RemoveFromParent();
+		ActiveWorldInteractionRadial = nullptr;
+	}
 	ContextInteractionTarget.Reset();
 	ContextInteractionOptions.Reset();
 	OnWorldInteractionRadialClosed();
+	RefreshInputModeForCurrentContext();
 }
 
 bool AEidosPlayerController::TryInteractWithActor(AActor* TargetActor)

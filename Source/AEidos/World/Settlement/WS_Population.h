@@ -31,7 +31,23 @@ public:
 	virtual void SimCommit_Implementation(USimCommandBuffer* CommandBuffer, float FixedDeltaSeconds) override;
 	virtual void SimPost_Implementation(float FixedDeltaSeconds) override;
 
-	const TArray<TWeakObjectPtr<APageCharacter>>& GetOwnedPages() const { return CachedPages; }
+	const TArray<TWeakObjectPtr<APageCharacter>>& GetOwnedPages() const;
+
+	/** Returns Pages currently held as captives. Captives are not controllable or assigned to work. */
+	void GetCaptivePages(TArray<APageCharacter*>& OutCaptives) const;
+
+	APageCharacter* FindCaptiveById(int32 PageId) const;
+	bool CaptureHostilePage(APageCharacter* TargetPage);
+	bool RecruitCaptivePage(int32 PageId, FString& OutReason);
+
+	UFUNCTION(BlueprintPure, Category="Population|Capacity")
+	int32 GetCurrentPageCount() const;
+
+	UFUNCTION(BlueprintPure, Category="Population|Capacity")
+	int32 GetPageCapacity() const;
+
+	UFUNCTION(BlueprintPure, Category="Population|Capacity")
+	bool IsOverCapacity() const;
 
 	void EnsureTestPageSpawned();
 
@@ -61,6 +77,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Population|Test", meta=(ClampMin="1"))
 	int32 InitialTestPageCount = 2;
 
+	UPROPERTY(EditDefaultsOnly, Category="Population|Capacity", meta=(ClampMin="0"))
+	int32 BasePageCapacity = 2;
+
+	UPROPERTY(EditDefaultsOnly, Category="Population|Capacity", meta=(ClampMin="0.01", ClampMax="1.0"))
+	float OverCapacityWorkRateMultiplier = 0.70f;
+
 	UPROPERTY(EditDefaultsOnly, Category="Population|Test")
 	FVector TestSpawnOffsetPerPage = FVector(150.f, 0.f, 0.f);
 
@@ -75,14 +97,32 @@ protected:
 	int32 StarterTestItemQuantity = 1;
 
 	UPROPERTY(EditDefaultsOnly, Category="Population|Test")
+	bool bGiveStarterBlockItems = true;
+
+	UPROPERTY(EditDefaultsOnly, Category="Population|Test", meta=(EditCondition="bGiveStarterBlockItems"))
+	FName StarterBlockItemId = TEXT("StoneBlock");
+
+	UPROPERTY(EditDefaultsOnly, Category="Population|Test", meta=(ClampMin="1", EditCondition="bGiveStarterBlockItems"))
+	int32 StarterBlockItemQuantity = 8;
+
+	UPROPERTY(EditDefaultsOnly, Category="Population|Test")
 	bool bEquipStarterTestTool = true;
 
 	UPROPERTY(EditDefaultsOnly, Category="Population|Test", meta=(EditCondition="bEquipStarterTestTool"))
 	FName StarterTestToolItemId = TEXT("TestPickaxe");
 
+	// Additional test equipment is granted to the first Page inventory, not auto-equipped.
+	UPROPERTY(EditDefaultsOnly, Category="Population|Test")
+	bool bGiveStarterTestEquipment = true;
+
+	UPROPERTY(EditDefaultsOnly, Category="Population|Test", meta=(EditCondition="bGiveStarterTestEquipment"))
+	TArray<FName> StarterTestEquipmentItemIds = { TEXT("TestKnife"), TEXT("TestHelmet"), TEXT("TestJacket"), TEXT("TestPants"), TEXT("TestBoots") };
+
 private:
 	
 	void RebuildCacheIfNeeded();
+	void MarkCacheDirty();
+	void RefreshSettlementCapacityState();
 	int32 EnsurePageEntityId(APageCharacter* Page);
 	APageCharacter* FindPageById(int32 PageId) const;
 	void ResetPageRuntimeState(APageCharacter* Page) const;
@@ -94,6 +134,8 @@ private:
 
 	bool bCacheDirty = true;
 	int32 NextPageId = 1;
+	int32 CachedPageCapacity = 0;
+	bool bCachedOverCapacity = false;
 
 	// 이번 틱에 적용할 델타(캐시와 같은 인덱스)
 	UPROPERTY()

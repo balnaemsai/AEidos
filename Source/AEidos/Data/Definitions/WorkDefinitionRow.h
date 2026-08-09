@@ -5,6 +5,15 @@
 #include "Core/Types/WorkTypes.h"
 #include "WorkDefinitionRow.generated.h"
 
+UENUM(BlueprintType)
+enum class EWorkCategory : uint8
+{
+	Craft,
+	Gather,
+	Construction,
+	Research
+};
+
 USTRUCT(BlueprintType)
 struct FWorkDefinitionRow : public FTableRowBase
 {
@@ -15,6 +24,9 @@ struct FWorkDefinitionRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FText DisplayName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	EWorkCategory WorkCategory = EWorkCategory::Craft;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	float TotalWork = 10.f;

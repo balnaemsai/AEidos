@@ -21,6 +21,10 @@ public:
 	UFUNCTION(BlueprintPure, Category="Equipment") FName GetEquippedItem(EPageEquipmentSlot Slot) const;
 	UFUNCTION(BlueprintPure, Category="Equipment") FName GetActiveToolItem() const;
 	UFUNCTION(BlueprintPure, Category="Equipment") bool HasActiveToolTag(FName ToolTag) const;
+	/** Checks one exact equipment slot. Interaction selection uses this to prioritize the right hand over the left. */
+	UFUNCTION(BlueprintPure, Category="Equipment") bool HasToolTagInSlot(EPageEquipmentSlot Slot, FName ToolTag) const;
+	/** Resolves a required interaction tool as right hand first, then left hand. */
+	UFUNCTION(BlueprintPure, Category="Equipment") bool CanUseToolForInteraction(FName ToolTag) const;
 	UFUNCTION(BlueprintCallable, Category="Equipment") bool EquipFromInventory(FName ItemId, EPageEquipmentSlot Slot);
 	UFUNCTION(BlueprintCallable, Category="Equipment") bool UnequipToInventory(EPageEquipmentSlot Slot);
 

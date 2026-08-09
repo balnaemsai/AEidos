@@ -86,4 +86,8 @@ struct FBuildingDefinitionRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Storage", meta=(ClampMin="0.0"))
 	float StorageVolumeCapacity = 0.f;
+
+	// Completed lodging buildings increase the number of Pages the settlement can support.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Population", meta=(ClampMin="0"))
+	int32 PageCapacity = 0;
 };

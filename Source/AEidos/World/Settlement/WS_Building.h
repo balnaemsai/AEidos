@@ -73,6 +73,9 @@ public:
 
 	void GetCompletedBuildingIds(TArray<FName>& OutBuildingIds) const;
 
+	/** Total Page capacity supplied by completed buildings only. */
+	int32 GetCompletedPageCapacity() const;
+
 	UFUNCTION(BlueprintCallable)
 	void LoadBuildingDefs();
 

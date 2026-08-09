@@ -6,6 +6,29 @@
 #include "Entities/Items/InventoryComponent.h"
 #include "Entities/Page/PageCharacter.h"
 
+namespace
+{
+FString GetEquipmentSlotLabel(EPageEquipmentSlot Slot)
+{
+	if (const UEnum* EquipmentSlotEnum = StaticEnum<EPageEquipmentSlot>())
+	{
+		return EquipmentSlotEnum->GetNameStringByValue(static_cast<int64>(Slot));
+	}
+	return FString::FromInt(static_cast<int32>(Slot));
+}
+
+FString GetCompatibleSlotLabels(const TArray<EPageEquipmentSlot>& Slots)
+{
+	TArray<FString> Labels;
+	Labels.Reserve(Slots.Num());
+	for (const EPageEquipmentSlot Slot : Slots)
+	{
+		Labels.Add(GetEquipmentSlotLabel(Slot));
+	}
+	return FString::Join(Labels, TEXT(", "));
+}
+}
+
 UEquipmentComponent::UEquipmentComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
@@ -70,29 +93,73 @@ FName UEquipmentComponent::GetActiveToolItem() const
 
 bool UEquipmentComponent::HasActiveToolTag(FName ToolTag) const
 {
+	return CanUseToolForInteraction(ToolTag);
+}
+
+bool UEquipmentComponent::HasToolTagInSlot(EPageEquipmentSlot Slot, FName ToolTag) const
+{
 	if (ToolTag.IsNone()) return true;
-	const FName ActiveTool = GetActiveToolItem();
-	if (ActiveTool.IsNone()) return ToolTag == TEXT("Tool.BareHand");
-	const FItemDefinitionRow* Def = FindItemDefinition(ActiveTool);
+	const FName EquippedItem = GetEquippedItem(Slot);
+	if (EquippedItem.IsNone()) return ToolTag == TEXT("Tool.BareHand");
+	const FItemDefinitionRow* Def = FindItemDefinition(EquippedItem);
 	return Def && Def->ToolInteractionTags.Contains(ToolTag);
+}
+
+bool UEquipmentComponent::CanUseToolForInteraction(FName ToolTag) const
+{
+	if (ToolTag.IsNone()) return true;
+	if (ToolTag == TEXT("Tool.BareHand"))
+	{
+		return GetEquippedItem(EPageEquipmentSlot::RightHand).IsNone()
+			|| GetEquippedItem(EPageEquipmentSlot::LeftHand).IsNone();
+	}
+	return HasToolTagInSlot(EPageEquipmentSlot::RightHand, ToolTag)
+		|| HasToolTagInSlot(EPageEquipmentSlot::LeftHand, ToolTag);
 }
 
 bool UEquipmentComponent::EquipFromInventory(FName ItemId, EPageEquipmentSlot Slot)
 {
 	UInventoryComponent* Inventory = GetOwnerInventory();
 	const FItemDefinitionRow* Def = FindItemDefinition(ItemId);
-	if (!Inventory || !Def || Def->ItemType != EItemType::Equipment || !Def->CompatibleEquipmentSlots.Contains(Slot)) return false;
+	const FString SlotLabel = GetEquipmentSlotLabel(Slot);
+	if (!Inventory)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Equipment] Equip failed Item=%s Slot=%s: owner inventory is missing"), *ItemId.ToString(), *SlotLabel);
+		return false;
+	}
+	if (!Def)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Equipment] Equip failed Item=%s Slot=%s: item definition was not found"), *ItemId.ToString(), *SlotLabel);
+		return false;
+	}
+	if (Def->ItemType != EItemType::Equipment)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Equipment] Equip failed Item=%s Slot=%s: definition type is not Equipment"), *ItemId.ToString(), *SlotLabel);
+		return false;
+	}
+	if (!Def->CompatibleEquipmentSlots.Contains(Slot))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Equipment] Equip failed Item=%s Slot=%s: compatible slots=[%s]"),
+			*ItemId.ToString(), *SlotLabel, *GetCompatibleSlotLabels(Def->CompatibleEquipmentSlots));
+		return false;
+	}
 	float RemovedQuality = 0.f;
-	if (Inventory->TryRemoveItem(ItemId, 1, RemovedQuality) != 1) return false;
+	if (Inventory->TryRemoveItem(ItemId, 1, RemovedQuality) != 1)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Equipment] Equip failed Item=%s Slot=%s: item is not present in the Page inventory"), *ItemId.ToString(), *SlotLabel);
+		return false;
+	}
 	FPageEquipmentSlotState* TargetSlot = FindSlot(Slot);
 	if (!TargetSlot)
 	{
 		Inventory->TryAddItem(ItemId, 1, RemovedQuality);
+		UE_LOG(LogTemp, Warning, TEXT("[Equipment] Equip failed Item=%s Slot=%s: equipment slot state is missing"), *ItemId.ToString(), *SlotLabel);
 		return false;
 	}
 	if (!TargetSlot->ItemId.IsNone()) Inventory->TryAddItem(TargetSlot->ItemId, 1);
 	TargetSlot->ItemId = ItemId;
 	OnEquipmentChanged.Broadcast();
+	UE_LOG(LogTemp, Log, TEXT("[Equipment] Equipped Item=%s Slot=%s"), *ItemId.ToString(), *SlotLabel);
 	return true;
 }
 

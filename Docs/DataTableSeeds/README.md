@@ -10,6 +10,8 @@ Files:
 - `DT_Work_seed.csv`
 - `DT_Building_seed.csv`
 - `DT_Portal_seed.csv`
+- `DT_Block_seed_imp.csv`
+- `DT_BlockInteraction_seed_imp.csv`
 
 General rules:
 - The first column `Name` is the Unreal DataTable row name.
@@ -30,6 +32,8 @@ Starter content:
 - Work rows: 5 starter rows
 - Buildings: `Hut`, `Stockpile`, `Workbench`, `TrainingDummy`, `WatchPost`
 - Portals: 5 starter rows
+- Blocks: block identity, integrity, and destruction behavior
+- Block interactions: one row per block action; this supports any number of actions per block
 
 Recommended import order:
 1. `DT_Resource`

@@ -107,6 +107,9 @@ public:
 	UFUNCTION(BlueprintPure, Category="Combat")
 	APageCharacter* GetActiveCombatantForUI() const;
 
+	// Removes a defeated unit immediately so the encounter can end without waiting for a later sim tick.
+	void NotifyCombatantDefeated(APageCharacter* DefeatedPage);
+
 	bool NotifyPageMoved(APageCharacter* Page, float DistanceCm);
 	bool RequestEndTurn(APageCharacter* Page);
 	bool RequestUseCombatAction(APageCharacter* RequestingPage, int32 SlotIndex, AActor* OptionalTarget);

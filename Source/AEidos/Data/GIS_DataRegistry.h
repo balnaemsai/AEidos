@@ -16,6 +16,9 @@ struct FWorkDefinitionRow;
 struct FBuildingDefinitionRow;
 struct FResourceDefinitionRow;
 struct FItemDefinitionRow;
+struct FBlockDefinitionRow;
+struct FBlockInteractionDefinitionRow;
+struct FResearchDefinitionRow;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogDataRegistry, Log, All);
 
@@ -47,6 +50,9 @@ class AEIDOS_API UGIS_DataRegistry : public UGameInstanceSubsystem
 	UDataTable* GetWorkTable() const;
 	const FWorkDefinitionRow* GetWorkDef(FName SkillId) const;
 
+	UDataTable* GetResearchTable() const;
+	const FResearchDefinitionRow* GetResearchDef(FName ResearchId) const;
+
 	UDataTable* GetBuildingTable() const;
 	const FBuildingDefinitionRow* GetBuildingDef(FName BuildingId) const;
 
@@ -57,6 +63,14 @@ class AEIDOS_API UGIS_DataRegistry : public UGameInstanceSubsystem
 	UDataTable* GetItemTable() const;
 	const FItemDefinitionRow* GetItemDef(FName ItemId) const;
 	TArray<FName> GetAllItemIds() const;
+
+	/** CSV-backed world block state definitions. */
+	UDataTable* GetBlockTable() const;
+	const FBlockDefinitionRow* GetBlockDef(FName BlockId) const;
+
+	/** CSV-backed actions available for each world block. */
+	UDataTable* GetBlockInteractionTable() const;
+	void GetBlockInteractions(FName BlockId, TArray<const FBlockInteractionDefinitionRow*>& OutInteractions) const;
 
 	UDataTable* GetPortalTable() const;
 	const FPortalDefinitionRow* GetPortalDef(FName PortalDefId) const;

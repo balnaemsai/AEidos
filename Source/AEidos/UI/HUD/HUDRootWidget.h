@@ -14,6 +14,9 @@ class UPanelHostWidget;
 class UCombatHUDWidget;
 class UPanel_Pages;
 class UPageSkillEditorWidget;
+class UPageEquipmentEditorWidget;
+class UWorkOrderPopupWidget;
+class APageCharacter;
 
 /**
  * 
@@ -35,6 +38,12 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Pages")
 	bool ShowPageSkillEditor(UPanel_Pages* SourcePanel);
+
+	UFUNCTION(BlueprintCallable, Category="Equipment")
+	bool ShowPageEquipmentEditor(APageCharacter* Page);
+
+	UFUNCTION(BlueprintCallable, Category="Work")
+	bool ShowWorkOrderPopup();
 
 protected:
 	virtual void NativeConstruct() override;
@@ -67,5 +76,15 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UPageSkillEditorWidget> ActivePageSkillEditor;
+
+	UPROPERTY(EditDefaultsOnly, Category="Equipment")
+	TSubclassOf<UPageEquipmentEditorWidget> PageEquipmentEditorClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UPageEquipmentEditorWidget> ActivePageEquipmentEditor;
+
+	UPROPERTY(EditDefaultsOnly, Category="Work")
+	TSubclassOf<UWorkOrderPopupWidget> WorkOrderPopupClass;
+	UPROPERTY(Transient) TObjectPtr<UWorkOrderPopupWidget> ActiveWorkOrderPopup;
 	
 };

@@ -40,6 +40,12 @@ public:
 	UFUNCTION(BlueprintPure, Category="Storage")
 	const TArray<FItemStack>& GetStoredItems() const { return StoredItems; }
 
+	UFUNCTION(BlueprintPure, Category="Storage")
+	int32 GetStoredItemAmount(FName ItemId) const;
+
+	/** Checks aggregate weight and volume before a work order deposits several item rewards. */
+	bool CanStoreItemStacks(const TArray<FItemStack>& ItemStacks) const;
+
 	int32 GetMaxResourceAmountThatFits(FName ResourceId, int32 RequestedAmount) const;
 
 	UFUNCTION(BlueprintCallable, Category="Storage")
@@ -50,6 +56,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Storage")
 	void DepositPageInventory(APageCharacter* Page);
+
+	/** Converts only return-convertible resource items carried by a Page. Equipment and ordinary items stay carried. */
+	UFUNCTION(BlueprintCallable, Category="Storage")
+	void ConvertReturnResources(APageCharacter* Page);
 
 	void NotifyResourceChanged();
 

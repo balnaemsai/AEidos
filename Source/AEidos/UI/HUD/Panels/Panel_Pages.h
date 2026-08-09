@@ -92,6 +92,13 @@ protected:
 	UPROPERTY(meta=(BindWidgetOptional))
 	TObjectPtr<UButton> Button_EditSkills;
 
+	UPROPERTY(meta=(BindWidgetOptional))
+	TObjectPtr<UButton> Button_Equipment;
+
+	// Visible only while a captive entry is being inspected.
+	UPROPERTY(meta=(BindWidgetOptional))
+	TObjectPtr<UButton> Button_RecruitCaptive;
+
 	UPROPERTY(EditDefaultsOnly, Category="Pages")
 	TSubclassOf<UPageEntry> PageEntryClass;
 
@@ -115,6 +122,7 @@ protected:
 	TArray<FPageActionCandidateView> SelectedPageAvailableActions;
 
 	TWeakObjectPtr<UStatsComponent> ObservedStats;
+	TWeakObjectPtr<APageCharacter> InspectedCaptive;
 	FDelegateHandle ActorDestroyedHandle;
 
 	void RebuildPageEntryWidgets();
@@ -134,6 +142,12 @@ protected:
 
 	UFUNCTION()
 	void HandleEditSkillsClicked();
+
+	UFUNCTION()
+	void HandleEquipmentClicked();
+
+	UFUNCTION()
+	void HandleRecruitCaptiveClicked();
 
 	UFUNCTION()
 	void HandleSelectedPageStatsChanged();

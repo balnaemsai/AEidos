@@ -1,6 +1,13 @@
-﻿Name,ItemId,DisplayName,Description,ItemType,StackLimit,UnitWeight,UnitVolume,Icon,WorldPickupClass,SettlementResourceId,bConvertOnReturn,bTracksQuality
-WoodBundle,WoodBundle,Wood Bundle,Raw wood carried out of a dungeon.,Material,100,0.2,1,,,Wood,TRUE,FALSE
-StoneChunk,StoneChunk,Stone Chunk,Raw stone carried out of a dungeon.,Material,100,0.35,0.8,,,Stone,TRUE,FALSE
-Ration,Ration,Ration,A basic meal. Quality support is reserved for the meal system.,Consumable,20,0.25,0.4,,,,FALSE,TRUE
-CoreShard_Wood,CoreShard_Wood,Wood Core Shard,A dimensional core fragment required for permanent production unlocks.,CoreShard,1,2,3,,,,FALSE,FALSE
-Medkit,Medkit,Field Medkit,A test consumable for the future item-use combat action.,Consumable,10,0.4,0.7,,,,FALSE,FALSE
+Name,ItemId,DisplayName,Description,ItemType,StackLimit,UnitWeight,UnitVolume,Icon,WorldPickupClass,PlacedBlockClass,InventoryActions,UseEffect,UseEffectMagnitude,bConsumeOnUse,CompatibleEquipmentSlots,ToolInteractionTags,SettlementResourceId,bConvertOnReturn,bTracksQuality,SettlementMealUnits,DefaultMealQuality
+WoodBundle,WoodBundle,Wood Bundle,Raw wood carried out of a dungeon.,Material,100,0.2,1,,,,,None,0,TRUE,,,Wood,TRUE,FALSE,0,0
+StoneChunk,StoneChunk,Stone Chunk,Raw stone carried out of a dungeon.,Material,100,0.35,0.8,,,,,None,0,TRUE,,,Stone,TRUE,FALSE,0,0
+StoneBlock,StoneBlock,Stone Block,A test placeable stone block.,Material,100,1,1,,,/Game/Blueprints/BP_StoneChunkBlock.BP_StoneChunkBlock_C,(Place),None,0,TRUE,,,,FALSE,FALSE,0,0
+Ration,Ration,Ration,A basic meal that restores a little health. Quality support is reserved for the meal system.,Consumable,20,0.25,0.4,,,,(Use),RestoreHealth,10,TRUE,,,,FALSE,TRUE,1,1
+CoreShard_Wood,CoreShard_Wood,Wood Core Shard,A dimensional core fragment required for permanent production unlocks.,CoreShard,1,2,3,,,,,None,0,TRUE,,,,FALSE,FALSE,0,0
+Medkit,Medkit,Field Medkit,A test consumable that restores health.,Consumable,10,0.4,0.7,,,,(Use),RestoreHealth,35,TRUE,,,,FALSE,FALSE,0,0
+TestPickaxe,TestPickaxe,Test Pickaxe,A test mining tool for harvesting stone blocks.,Equipment,1,3,3,,,,(Equip),None,0,TRUE,(RightHand),(Tool.Pickaxe),,FALSE,FALSE,0,0
+TestKnife,TestKnife,Test Knife,A test one-handed item for the left hand slot.,Equipment,1,1,1,,,,(Equip),None,0,TRUE,(LeftHand),,,FALSE,FALSE,0,0
+TestHelmet,TestHelmet,Test Helmet,A test head equipment item.,Equipment,1,2,2,,,,(Equip),None,0,TRUE,(Head),,,FALSE,FALSE,0,0
+TestJacket,TestJacket,Test Jacket,A test upper-body equipment item.,Equipment,1,3,3,,,,(Equip),None,0,TRUE,(UpperBody),,,FALSE,FALSE,0,0
+TestPants,TestPants,Test Pants,A test lower-body equipment item.,Equipment,1,2,2,,,,(Equip),None,0,TRUE,(LowerBody),,,FALSE,FALSE,0,0
+TestBoots,TestBoots,Test Boots,A test footwear equipment item.,Equipment,1,1,1,,,,(Equip),None,0,TRUE,(Feet),,,FALSE,FALSE,0,0
