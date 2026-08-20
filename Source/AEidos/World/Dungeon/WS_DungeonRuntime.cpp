@@ -5,12 +5,17 @@
 
 #include "Data/GIS_DataRegistry.h"
 #include "Data/Definitions/BuildingDefinitionRow.h"
+#include "Data/Definitions/ItemDefinitionRow.h"
+#include "Data/Definitions/DungeonAttributeDefinitionRow.h"
+#include "Data/Definitions/PortalDefinitionRow.h"
 #include "Engine/Level.h"
 #include "Engine/LevelStreamingDynamic.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Entities/Page/PageCharacter.h"
 #include "Entities/Page/Components/StatsComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerStart.h"
 #include "Components/CapsuleComponent.h"
 #include "World/Dungeon/DungeonSettlementPreset.h"
@@ -22,6 +27,7 @@
 #include "World/Settlement/WS_PortalDirector.h"
 #include "World/Settlement/WS_ItemStorage.h"
 #include "World/Settlement/WS_SettlementSpace.h"
+#include "World/Settlement/SettlementCoreActor.h"
 
 namespace
 {
@@ -52,6 +58,24 @@ namespace
 
 		return DesiredTransform;
 	}
+
+	FTransform ResolveSettlementReturnTransform(UWorld* World, const FTransform& FallbackTransform)
+	{
+		if (!World)
+		{
+			return FallbackTransform;
+		}
+
+		for (TActorIterator<ASettlementCoreActor> It(World); It; ++It)
+		{
+			if (const ASettlementCoreActor* Core = *It; IsValid(Core))
+			{
+				return Core->GetActorTransform();
+			}
+		}
+
+		return FallbackTransform;
+	}
 }
 
 UWS_DungeonRuntime::UWS_DungeonRuntime()
@@ -80,39 +104,83 @@ void UWS_DungeonRuntime::Deinitialize()
 
 bool UWS_DungeonRuntime::EnterDungeonForPortal(int32 PortalId, APageCharacter* EnteringPage)
 {
+	TArray<APageCharacter*> EnteringPages;
+	if (EnteringPage)
+	{
+		EnteringPages.Add(EnteringPage);
+	}
+	return EnterDungeonForPortal(PortalId, EnteringPages);
+}
+
+bool UWS_DungeonRuntime::EnterDungeonForPortal(int32 PortalId, const TArray<APageCharacter*>& EnteringPages)
+{
 	if (!GetWorld())
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] EnterDungeonForPortal failed: world missing"));
 		return false;
 	}
 
-	if (!EnteringPage)
+	TArray<APageCharacter*> UniquePages;
+	for (APageCharacter* Page : EnteringPages)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] EnterDungeonForPortal failed: page missing"));
+		if (Page && !UniquePages.Contains(Page))
+		{
+			UniquePages.Add(Page);
+		}
+	}
+	if (UniquePages.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] EnterDungeonForPortal failed: no Pages supplied"));
 		return false;
 	}
 
-	if (EnteringPage->IsInDungeon())
+	for (APageCharacter* Page : UniquePages)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] EnterDungeonForPortal failed: page already in dungeon"));
-		return false;
+		if (Page->IsInDungeon() || !CanJoinActiveExpedition(Page))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] EnterDungeonForPortal failed: PageId=%d cannot join"), Page->GetPageEntityId());
+			return false;
+		}
 	}
+	APageCharacter* EnteringPage = UniquePages[0];
 
 	if (HasActiveDungeon())
 	{
-		if (ActiveSession.PortalId != PortalId || ActiveSession.bCoreDestroyed)
+		// A destroyed core starts the escape window, rather than closing the expedition.
+		// Pages may still re-enter through the original settlement portal until collapse.
+		if (ActiveSession.PortalId != PortalId ||
+			(ActiveSession.bCoreDestroyed && !IsDungeonCollapseActive()))
 		{
 			UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] EnterDungeonForPortal failed: another dungeon is active"));
 			return false;
 		}
 
-		AddPageToActiveDungeon(EnteringPage);
-		return true;
+		bool bAddedAny = false;
+		for (APageCharacter* Page : UniquePages)
+		{
+			bAddedAny |= AddPageToActiveDungeon(Page);
+		}
+		return bAddedAny;
+	}
+
+	FPortalState PortalState;
+	if (UWS_PortalDirector* PortalDirector = GetWorld()->GetSubsystem<UWS_PortalDirector>();
+		!PortalDirector || !PortalDirector->TryGetPortalState(PortalId, PortalState))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] EnterDungeonForPortal failed: portal state missing PortalId=%d"), PortalId);
+		return false;
 	}
 
 	if (DefaultDungeonLevel.IsNull())
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] EnterDungeonForPortal failed: DefaultDungeonLevel missing"));
+		return false;
+	}
+
+	UDungeonSettlementPreset* SettlementPreset = ResolveSettlementPresetForPortal(PortalState);
+	if (!SettlementPreset)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] EnterDungeonForPortal failed: no compatible settlement preset for PortalId=%d"), PortalId);
 		return false;
 	}
 
@@ -150,20 +218,30 @@ bool UWS_DungeonRuntime::EnterDungeonForPortal(int32 PortalId, APageCharacter* E
 
 	ResetActiveSession();
 	ActiveSession.PortalId = PortalId;
-	ActiveSession.PageEntityId = EnteringPage->GetPageEntityId();
-	ActiveSession.ReturnTransform = EnteringPage->GetActorTransform();
-	ActiveSession.DungeonPages.Add(EnteringPage);
+	ActiveSession.SettlementValueAtSpawn = PortalState.SettlementValueAtSpawn;
+	ActiveSession.DungeonDifficulty = FMath::Max(0.5f, PortalState.DungeonDifficulty);
+	ActiveSession.DungeonAttributes = PortalState.DungeonAttributes;
+	ActiveSession.SettlementPreset = SettlementPreset;
+	ActiveSession.SettlementPresetId = SettlementPreset->PresetId;
+	// All expedition members return at the settlement core, not the location of
+	// whichever Page happened to enter the portal first.
+	ActiveSession.ReturnTransform = ResolveSettlementReturnTransform(GetWorld(), EnteringPage->GetActorTransform());
+	for (APageCharacter* Page : UniquePages)
+	{
+		ActiveSession.DungeonPages.Add(Page);
+		Page->CurrentJobState = FPageJobState{};
+	}
 	ActiveSession.StreamingLevel = StreamingLevel;
 	ActiveSession.bPageTransferred = false;
-
-	EnteringPage->CurrentJobState = FPageJobState{};
 
 	StreamingLevel->OnLevelShown.AddUniqueDynamic(this, &UWS_DungeonRuntime::HandleActiveDungeonLevelShown);
 
 	UE_LOG(LogTemp, Log,
-		TEXT("[DungeonRuntime] Requested dungeon load for PortalId=%d PageId=%d Level=%s"),
+		TEXT("[DungeonRuntime] Requested dungeon load for PortalId=%d Difficulty=%.2f Preset=%s Pages=%d Level=%s"),
 		PortalId,
-		EnteringPage->GetPageEntityId(),
+		ActiveSession.DungeonDifficulty,
+		*ActiveSession.SettlementPresetId.ToString(),
+		UniquePages.Num(),
 		*DungeonLevelToLoad.ToString());
 
 	return true;
@@ -176,11 +254,25 @@ bool UWS_DungeonRuntime::HasActiveDungeon() const
 
 bool UWS_DungeonRuntime::IsPageInActiveDungeon(const APageCharacter* Page) const
 {
-	return Page && Page->IsInDungeon() && ActiveSession.DungeonPages.ContainsByPredicate(
+	if (!Page || !Page->IsInDungeon())
+	{
+		return false;
+	}
+
+	// Original expedition pages live in the persistent level after being moved,
+	// while spawned dungeon units belong to the streamed level. A captured unit
+	// that is later recruited must be accepted by the return portal as well.
+	if (ActiveSession.DungeonPages.ContainsByPredicate(
 		[Page](const TWeakObjectPtr<APageCharacter>& Candidate)
 		{
 			return Candidate.Get() == Page;
-		});
+		}))
+	{
+		return true;
+	}
+
+	const ULevelStreamingDynamic* StreamingLevel = ActiveSession.StreamingLevel.Get();
+	return StreamingLevel && StreamingLevel->GetLoadedLevel() && Page->GetLevel() == StreamingLevel->GetLoadedLevel();
 }
 
 bool UWS_DungeonRuntime::IsActiveDungeonForPortal(int32 PortalId) const
@@ -203,6 +295,19 @@ float UWS_DungeonRuntime::GetDungeonCollapseRemainingSeconds() const
 	return FMath::Max(0.f, static_cast<float>(ActiveSession.CollapseEndTimeSeconds - GetWorld()->GetTimeSeconds()));
 }
 
+int32 UWS_DungeonRuntime::GetActiveDungeonPageCount() const
+{
+	int32 Count = 0;
+	for (const TWeakObjectPtr<APageCharacter>& WeakPage : ActiveSession.DungeonPages)
+	{
+		if (const APageCharacter* Page = WeakPage.Get(); Page && Page->IsInDungeon())
+		{
+			++Count;
+		}
+	}
+	return Count;
+}
+
 void UWS_DungeonRuntime::HandleActiveDungeonLevelShown()
 {
 	ULevelStreamingDynamic* StreamingLevel = ActiveSession.StreamingLevel.Get();
@@ -219,34 +324,31 @@ void UWS_DungeonRuntime::HandleActiveDungeonLevelShown()
 		return;
 	}
 
-	const FTransform EntryTransform = ResolveDungeonEntryTransform(LoadedLevel);
+	ActiveSession.EntryTransform = ResolveDungeonEntryTransform(LoadedLevel);
 	SpawnPresetLayoutIntoDungeon(LoadedLevel);
 	for (const TWeakObjectPtr<APageCharacter>& WeakPage : ActiveSession.DungeonPages)
 	{
 		if (APageCharacter* Page = WeakPage.Get())
 		{
-			MovePageIntoDungeon(Page, EntryTransform);
+			MovePageIntoDungeon(Page, ActiveSession.EntryTransform);
 		}
 	}
 	ActiveSession.bPageTransferred = true;
 
 	UE_LOG(LogTemp, Log,
-		TEXT("[DungeonRuntime] PageId=%d moved into dungeon for PortalId=%d at %s"),
+		TEXT("[DungeonRuntime] %d Page(s) moved into dungeon for PortalId=%d at %s"),
 		ActiveSession.DungeonPages.Num(),
 		ActiveSession.PortalId,
-		*EntryTransform.GetLocation().ToString());
+		*ActiveSession.EntryTransform.GetLocation().ToString());
 }
 
 FTransform UWS_DungeonRuntime::ResolveDungeonEntryTransform(ULevel* LoadedLevel) const
 {
-	if (!DefaultSettlementPreset.IsNull())
+	if (const UDungeonSettlementPreset* Preset = ActiveSession.SettlementPreset)
 	{
-		if (const UDungeonSettlementPreset* Preset = DefaultSettlementPreset.LoadSynchronous())
+		if (!Preset->EntryTransform.GetLocation().IsNearlyZero() || !Preset->EntryTransform.GetRotation().Equals(FQuat::Identity))
 		{
-			if (!Preset->EntryTransform.GetLocation().IsNearlyZero() || !Preset->EntryTransform.GetRotation().Equals(FQuat::Identity))
-			{
-				return MakeDungeonWorldTransform(Preset->EntryTransform);
-			}
+			return MakeDungeonWorldTransform(Preset->EntryTransform);
 		}
 	}
 
@@ -272,6 +374,85 @@ FTransform UWS_DungeonRuntime::ResolveDungeonEntryTransform(ULevel* LoadedLevel)
 	return DungeonLevelTransform;
 }
 
+UDungeonSettlementPreset* UWS_DungeonRuntime::ResolveSettlementPresetForPortal(const FPortalState& PortalState) const
+{
+	UGameInstance* GameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+	UGIS_DataRegistry* Registry = GameInstance ? GameInstance->GetSubsystem<UGIS_DataRegistry>() : nullptr;
+	TArray<const FPortalDefinitionRow*> Candidates;
+	if (Registry)
+	{
+		Registry->GetEligiblePortalDungeonPresets(PortalState.DungeonDifficulty, Candidates);
+	}
+
+	int32 BestSpecificity = INDEX_NONE;
+	TArray<TPair<const FPortalDefinitionRow*, UDungeonSettlementPreset*>> BestCandidates;
+	for (const FPortalDefinitionRow* Candidate : Candidates)
+	{
+		UDungeonSettlementPreset* Preset = Candidate ? Candidate->PresetAsset.LoadSynchronous() : nullptr;
+		if (!Preset || !IsPresetCompatibleWithAttributes(*Preset, PortalState.DungeonAttributes))
+		{
+			continue;
+		}
+
+		const int32 Specificity = Preset->SupportedAttributeIds.IsEmpty() ? 0 : Preset->SupportedAttributeIds.Num();
+		if (Specificity > BestSpecificity)
+		{
+			BestSpecificity = Specificity;
+			BestCandidates.Reset();
+		}
+		if (Specificity == BestSpecificity)
+		{
+			BestCandidates.Emplace(Candidate, Preset);
+		}
+	}
+
+	if (!BestCandidates.IsEmpty())
+	{
+		float TotalWeight = 0.f;
+		for (const TPair<const FPortalDefinitionRow*, UDungeonSettlementPreset*>& Candidate : BestCandidates)
+		{
+			TotalWeight += Candidate.Key->SelectionWeight;
+		}
+
+		FRandomStream Stream(PortalState.DungeonSeed ^ 0x2A9D4F);
+		float Roll = Stream.FRandRange(0.f, FMath::Max(TotalWeight, KINDA_SMALL_NUMBER));
+		for (const TPair<const FPortalDefinitionRow*, UDungeonSettlementPreset*>& Candidate : BestCandidates)
+		{
+			Roll -= Candidate.Key->SelectionWeight;
+			if (Roll <= 0.f)
+			{
+				return Candidate.Value;
+			}
+		}
+		return BestCandidates.Last().Value;
+	}
+
+	UDungeonSettlementPreset* Fallback = DefaultSettlementPreset.IsNull() ? nullptr : DefaultSettlementPreset.LoadSynchronous();
+	if (Fallback)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] No unified portal preset matched PortalId=%d. Using fallback preset '%s'."),
+			PortalState.PortalId, *GetNameSafe(Fallback));
+	}
+	return Fallback;
+}
+
+bool UWS_DungeonRuntime::IsPresetCompatibleWithAttributes(const UDungeonSettlementPreset& Preset, const TArray<FDungeonAttributeWeight>& Attributes) const
+{
+	if (Preset.SupportedAttributeIds.IsEmpty() || Attributes.IsEmpty())
+	{
+		return true;
+	}
+
+	for (const FDungeonAttributeWeight& Attribute : Attributes)
+	{
+		if (!Attribute.AttributeId.IsNone() && !Preset.SupportedAttributeIds.Contains(Attribute.AttributeId))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 FTransform UWS_DungeonRuntime::MakeDungeonWorldTransform(const FTransform& LocalTransform) const
 {
 	const FVector WorldLocation = DungeonLevelTransform.TransformPosition(LocalTransform.GetLocation());
@@ -287,18 +468,11 @@ void UWS_DungeonRuntime::SpawnPresetLayoutIntoDungeon(ULevel* LoadedLevel)
 		return;
 	}
 
-	if (DefaultSettlementPreset.IsNull())
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[DungeonRuntime] SpawnPresetLayoutIntoDungeon failed: DefaultSettlementPreset is null"));
-		return;
-	}
-
-	UDungeonSettlementPreset* Preset = DefaultSettlementPreset.LoadSynchronous();
+	UDungeonSettlementPreset* Preset = ActiveSession.SettlementPreset;
 	if (!Preset)
 	{
 		UE_LOG(LogTemp, Warning,
-			TEXT("[DungeonRuntime] SpawnPresetLayoutIntoDungeon failed: preset missing at %s"),
-			*DefaultSettlementPreset.ToString());
+			TEXT("[DungeonRuntime] SpawnPresetLayoutIntoDungeon failed: active settlement preset missing"));
 		return;
 	}
 
@@ -419,6 +593,23 @@ void UWS_DungeonRuntime::SpawnDungeonCore(ULevel* LoadedLevel, const UDungeonSet
 	const FTransform SpawnTransform = MakeDungeonWorldTransform(Preset->CoreTransform);
 	if (ADungeonCoreActor* CoreActor = GetWorld()->SpawnActor<ADungeonCoreActor>(DefaultDungeonCoreClass, SpawnTransform, Params))
 	{
+		TArray<FItemStack> Rewards;
+		if (UGIS_DataRegistry* Registry = GetWorld()->GetGameInstance()->GetSubsystem<UGIS_DataRegistry>(); Registry && Registry->EnsureReadySync())
+		{
+			FItemStack PortalShard;
+			PortalShard.ItemId = TEXT("PortalShard");
+			PortalShard.Quantity = 1;
+			for (const FDungeonAttributeWeight& Attribute : ActiveSession.DungeonAttributes)
+			{
+				if (const FDungeonAttributeDefinitionRow* Definition = Registry->GetDungeonAttributeDef(Attribute.AttributeId))
+				{
+					PortalShard.ItemId = Definition->CoreShardItemId;
+					PortalShard.DungeonAttributes.Add(Attribute);
+				}
+			}
+			if (PortalShard.IsValid() && !PortalShard.DungeonAttributes.IsEmpty()) Rewards.Add(PortalShard);
+		}
+		if (!Rewards.IsEmpty()) CoreActor->ConfigureCoreShardRewards(Rewards);
 		CoreActor->OnCoreDestroyed.AddDynamic(this, &UWS_DungeonRuntime::HandleDungeonCoreDestroyed);
 		ActiveSession.DungeonCore = CoreActor;
 		ActiveSession.SpawnedActors.Add(CoreActor);
@@ -441,7 +632,8 @@ void UWS_DungeonRuntime::SpawnDungeonEnemies(ULevel* LoadedLevel, const UDungeon
 
 	for (const FDungeonEnemySpawnPreset& EnemySpawn : Preset->EnemySpawns)
 	{
-		const int32 SpawnCount = FMath::Max(1, EnemySpawn.SpawnCount);
+		const float Difficulty = FMath::Max(0.5f, ActiveSession.DungeonDifficulty);
+		const int32 SpawnCount = FMath::Clamp(FMath::CeilToInt(FMath::Max(1, EnemySpawn.SpawnCount) * Difficulty), 1, 20);
 		const FTransform BaseTransform = MakeDungeonWorldTransform(EnemySpawn.LocalTransform);
 
 		for (int32 Index = 0; Index < SpawnCount; ++Index)
@@ -470,7 +662,7 @@ void UWS_DungeonRuntime::SpawnDungeonEnemies(ULevel* LoadedLevel, const UDungeon
 
 				if (UStatsComponent* Stats = EnemyPage->GetStats())
 				{
-					Stats->RestoreToFull();
+					Stats->ApplyDifficultyScale(Difficulty);
 				}
 
 				ActiveSession.SpawnedActors.Add(EnemyPage);
@@ -513,7 +705,40 @@ void UWS_DungeonRuntime::HandleDungeonCoreDestroyed(ADungeonCoreActor* Destroyed
 	}
 
 	ULevel* LoadedLevel = ActiveSession.StreamingLevel.IsValid() ? ActiveSession.StreamingLevel->GetLoadedLevel() : nullptr;
+	SpawnCoreShardWorldItems(DestroyedCore, LoadedLevel);
+	OnDungeonCoreDestroyedForScenario.Broadcast(ActiveSession.PortalId);
 	StartDungeonCollapse(DestroyedCore->GetActorTransform(), LoadedLevel);
+}
+
+void UWS_DungeonRuntime::SpawnCoreShardWorldItems(ADungeonCoreActor* DestroyedCore, ULevel* LoadedLevel)
+{
+	if (!DestroyedCore || !LoadedLevel || !GetWorld())
+	{
+		return;
+	}
+
+	UGameInstance* GameInstance = GetWorld()->GetGameInstance();
+	UGIS_DataRegistry* Registry = GameInstance ? GameInstance->GetSubsystem<UGIS_DataRegistry>() : nullptr;
+	TArray<FItemStack> Rewards = DestroyedCore->GetCoreShardRewards();
+	if (Rewards.IsEmpty()) Rewards.Add({ DestroyedCore->GetCoreShardItemId(), DestroyedCore->GetCoreShardQuantity(), 0.f });
+	for (int32 Index = 0; Index < Rewards.Num(); ++Index)
+	{
+		const FItemStack& Reward = Rewards[Index];
+		const FItemDefinitionRow* ItemDef = Registry && Registry->EnsureReadySync() ? Registry->GetItemDef(Reward.ItemId) : nullptr;
+		UClass* WorldItemClass = ItemDef ? ItemDef->WorldPickupClass.LoadSynchronous() : nullptr;
+		if (!WorldItemClass || !WorldItemClass->IsChildOf(AWorldItemBlockActor::StaticClass())) continue;
+		FTransform ShardTransform = DestroyedCore->GetActorTransform();
+		const float Angle = Rewards.Num() > 1 ? 2.f * PI * Index / Rewards.Num() : 0.f;
+		ShardTransform.AddToTranslation(ShardTransform.GetRotation().GetForwardVector() * 260.f + FVector(FMath::Cos(Angle) * 140.f, FMath::Sin(Angle) * 140.f, 30.f));
+		FActorSpawnParameters Params;
+		Params.OverrideLevel = LoadedLevel;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+		if (AWorldItemBlockActor* Shard = GetWorld()->SpawnActor<AWorldItemBlockActor>(WorldItemClass, ShardTransform, Params))
+		{
+			Shard->InitializeWorldItemStack(Reward);
+			ActiveSession.SpawnedActors.Add(Shard);
+		}
+	}
 }
 
 void UWS_DungeonRuntime::SpawnDungeonWorldItems(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset)
@@ -625,7 +850,7 @@ void UWS_DungeonRuntime::StartDungeonCollapse(const FTransform& CoreTransform, U
 
 bool UWS_DungeonRuntime::ReturnPageFromActiveDungeon(APageCharacter* ReturningPage)
 {
-	if (!ReturningPage || !IsPageInActiveDungeon(ReturningPage) || !IsDungeonCollapseActive())
+	if (!ReturningPage || !ReturningPage->IsFriendly() || !IsPageInActiveDungeon(ReturningPage) || !IsDungeonCollapseActive())
 	{
 		return false;
 	}
@@ -644,8 +869,57 @@ bool UWS_DungeonRuntime::ReturnPageFromActiveDungeon(APageCharacter* ReturningPa
 		ItemStorage->ConvertReturnResources(ReturningPage);
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[DungeonRuntime] PageId=%d returned before collapse"), ReturningPage->GetPageEntityId());
+	// Captives are not directly controllable, so operating the return portal
+	// extracts every secured captive from this dungeon with the expedition.
+	const int32 ReturnedCaptiveCount = ReturnCaptivesFromActiveDungeon();
+
+	UE_LOG(LogTemp, Log, TEXT("[DungeonRuntime] PageId=%d returned before collapse with %d captive(s)"),
+		ReturningPage->GetPageEntityId(), ReturnedCaptiveCount);
 	return true;
+}
+
+int32 UWS_DungeonRuntime::ReturnCaptivesFromActiveDungeon()
+{
+	if (!GetWorld())
+	{
+		return 0;
+	}
+
+	int32 ReturnedCount = 0;
+	for (TActorIterator<APageCharacter> It(GetWorld()); It; ++It)
+	{
+		APageCharacter* Captive = *It;
+		if (!Captive || !Captive->IsCaptive() || !IsPageInActiveDungeon(Captive))
+		{
+			continue;
+		}
+
+		// Spread arrivals around the return point so multiple captives do not overlap.
+		const int32 Column = ReturnedCount % 3;
+		const int32 Row = ReturnedCount / 3;
+		FTransform CaptiveReturnTransform = ActiveSession.ReturnTransform;
+		CaptiveReturnTransform.AddToTranslation(FVector((Column - 1) * 130.f, 180.f + Row * 130.f, 0.f));
+		CaptiveReturnTransform = ResolveGroundedCharacterTransform(GetWorld(), CaptiveReturnTransform, Captive);
+
+		Captive->SetActorLocationAndRotation(
+			CaptiveReturnTransform.GetLocation(),
+			CaptiveReturnTransform.GetRotation().Rotator(),
+			false,
+			nullptr,
+			ETeleportType::TeleportPhysics);
+		Captive->SetIsInDungeon(false);
+		Captive->CurrentJobState = FPageJobState{};
+		Captive->SetTurnCombatState(false, false);
+		if (UCharacterMovementComponent* Movement = Captive->GetCharacterMovement())
+		{
+			Movement->StopMovementImmediately();
+			Movement->DisableMovement();
+		}
+
+		++ReturnedCount;
+	}
+
+	return ReturnedCount;
 }
 
 void UWS_DungeonRuntime::HandleDungeonCollapseExpired()
@@ -662,10 +936,10 @@ void UWS_DungeonRuntime::HandleDungeonCollapseExpired()
 
 void UWS_DungeonRuntime::DestroyPagesStillInDungeon()
 {
-	for (const TWeakObjectPtr<APageCharacter>& WeakPage : ActiveSession.DungeonPages)
+	for (TActorIterator<APageCharacter> It(GetWorld()); It; ++It)
 	{
-		APageCharacter* Page = WeakPage.Get();
-		if (!Page || !Page->IsInDungeon())
+		APageCharacter* Page = *It;
+		if (!Page || !IsPageInActiveDungeon(Page))
 		{
 			continue;
 		}
@@ -692,7 +966,8 @@ void UWS_DungeonRuntime::MovePageIntoDungeon(APageCharacter* Page, const FTransf
 		return;
 	}
 
-	const FTransform GroundedTransform = ResolveGroundedCharacterTransform(GetWorld(), EntryTransform, Page);
+	const FTransform FormationTransform = GetExpeditionFormationTransform(EntryTransform, Page);
+	const FTransform GroundedTransform = ResolveGroundedCharacterTransform(GetWorld(), FormationTransform, Page);
 	Page->SetActorLocationAndRotation(
 		GroundedTransform.GetLocation(),
 		GroundedTransform.GetRotation().Rotator(),
@@ -700,13 +975,17 @@ void UWS_DungeonRuntime::MovePageIntoDungeon(APageCharacter* Page, const FTransf
 		nullptr,
 		ETeleportType::TeleportPhysics);
 	Page->SetIsInDungeon(true);
+	UE_LOG(LogTemp, Log, TEXT("[DungeonRuntime] PageId=%d entered expedition PortalId=%d at %s"),
+		Page->GetPageEntityId(), ActiveSession.PortalId, *GroundedTransform.GetLocation().ToString());
 }
 
-void UWS_DungeonRuntime::AddPageToActiveDungeon(APageCharacter* Page)
+bool UWS_DungeonRuntime::AddPageToActiveDungeon(APageCharacter* Page)
 {
-	if (!Page || ActiveSession.bCoreDestroyed)
+	if (!Page ||
+		(ActiveSession.bCoreDestroyed && !IsDungeonCollapseActive()) ||
+		!CanJoinActiveExpedition(Page))
 	{
-		return;
+		return false;
 	}
 
 	const bool bAlreadyTracked = ActiveSession.DungeonPages.ContainsByPredicate(
@@ -721,9 +1000,50 @@ void UWS_DungeonRuntime::AddPageToActiveDungeon(APageCharacter* Page)
 
 	if (ActiveSession.bPageTransferred)
 	{
-		ULevel* LoadedLevel = ActiveSession.StreamingLevel.IsValid() ? ActiveSession.StreamingLevel->GetLoadedLevel() : nullptr;
-		MovePageIntoDungeon(Page, ResolveDungeonEntryTransform(LoadedLevel));
+		MovePageIntoDungeon(Page, ActiveSession.EntryTransform);
 	}
+	return true;
+}
+
+FTransform UWS_DungeonRuntime::GetExpeditionFormationTransform(const FTransform& AnchorTransform, const APageCharacter* Page) const
+{
+	static const FVector FormationOffsets[] =
+	{
+		FVector::ZeroVector,
+		FVector(140.f, 0.f, 0.f),
+		FVector(-140.f, 0.f, 0.f),
+		FVector(0.f, 140.f, 0.f),
+		FVector(0.f, -140.f, 0.f),
+		FVector(140.f, 140.f, 0.f),
+		FVector(-140.f, 140.f, 0.f),
+		FVector(140.f, -140.f, 0.f),
+		FVector(-140.f, -140.f, 0.f)
+	};
+
+	int32 PageIndex = ActiveSession.DungeonPages.IndexOfByPredicate(
+		[Page](const TWeakObjectPtr<APageCharacter>& Candidate)
+		{
+			return Candidate.Get() == Page;
+		});
+	PageIndex = FMath::Max(0, PageIndex);
+
+	FTransform Result = AnchorTransform;
+	const int32 OffsetIndex = PageIndex % UE_ARRAY_COUNT(FormationOffsets);
+	const int32 Ring = PageIndex / UE_ARRAY_COUNT(FormationOffsets);
+	const FVector LocalOffset = FormationOffsets[OffsetIndex] * (1.f + Ring);
+	Result.AddToTranslation(AnchorTransform.TransformVectorNoScale(LocalOffset));
+	return Result;
+}
+
+bool UWS_DungeonRuntime::CanJoinActiveExpedition(const APageCharacter* Page) const
+{
+	if (!Page || !Page->IsFriendly())
+	{
+		return false;
+	}
+
+	const UStatsComponent* Stats = Page->GetStats();
+	return !Stats || (!Stats->IsDead() && !Stats->IsDowned() && !Stats->IsRecovering());
 }
 
 

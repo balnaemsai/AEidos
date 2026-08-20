@@ -36,8 +36,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Inventory")
 	int32 TryAddItem(FName ItemId, int32 RequestedQuantity, float TotalQuality = 0.f);
 
+	/** Adds a full runtime stack without discarding instance data such as portal-shard attributes. */
+	int32 TryAddItemStack(const FItemStack& ItemStack);
+
 	UFUNCTION(BlueprintCallable, Category="Inventory")
 	int32 TryRemoveItem(FName ItemId, int32 RequestedQuantity, float& OutRemovedQuality);
+
+	/** Removes an identical instance stack. Intended for non-stackable, stateful items. */
+	bool TryRemoveItemStack(const FItemStack& ItemStack);
 
 	UFUNCTION(BlueprintCallable, Category="Inventory")
 	void SetStacks(const TArray<FItemStack>& InStacks);

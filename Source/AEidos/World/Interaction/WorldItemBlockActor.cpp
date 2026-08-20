@@ -79,12 +79,19 @@ void AWorldItemBlockActor::ApplyDungeonPresetData(FName InItemId, int32 InRemain
 
 void AWorldItemBlockActor::InitializeWorldItem(FName InItemId, int32 InQuantity)
 {
+	RuntimeItemStack = {};
 	ItemId = InItemId;
 	RemainingQuantity = FMath::Max(1, InQuantity);
 	QuantityPerHarvest = 1;
 	bCanPickUp = true;
 	bCanHarvest = false;
 	RequiredHarvestToolTag = NAME_None;
+}
+
+void AWorldItemBlockActor::InitializeWorldItemStack(const FItemStack& InItemStack)
+{
+	InitializeWorldItem(InItemStack.ItemId, InItemStack.Quantity);
+	RuntimeItemStack = InItemStack;
 }
 
 bool AWorldItemBlockActor::CanInteract(APageCharacter* InteractingPage) const
@@ -127,7 +134,10 @@ bool AWorldItemBlockActor::TransferToInventory(APageCharacter* InteractingPage, 
 {
 	UInventoryComponent* Inventory = InteractingPage ? InteractingPage->GetInventory() : nullptr;
 	if (!Inventory || Amount <= 0) return false;
-	const int32 Added = Inventory->TryAddItem(ItemId, FMath::Min(Amount, RemainingQuantity));
+	const int32 Requested = FMath::Min(Amount, RemainingQuantity);
+	const int32 Added = !RuntimeItemStack.DungeonAttributes.IsEmpty() && Requested == RuntimeItemStack.Quantity
+		? Inventory->TryAddItemStack(RuntimeItemStack)
+		: Inventory->TryAddItem(ItemId, Requested);
 	if (Added <= 0) return false;
 	RemainingQuantity -= Added;
 	if (RemainingQuantity <= 0) Destroy();

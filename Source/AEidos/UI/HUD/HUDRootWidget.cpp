@@ -7,8 +7,13 @@
 #include "UI/HUD/Panels/Panel_Pages.h"
 #include "UI/HUD/Panels/PageSkillEditorWidget.h"
 #include "UI/HUD/Panels/PageEquipmentEditorWidget.h"
+#include "UI/HUD/Panels/PageWorkPriorityEditorWidget.h"
 #include "UI/HUD/Panels/WorkOrderPopupWidget.h"
+#include "UI/HUD/SettlementDefeatWidget.h"
+#include "UI/HUD/ScenarioVictoryWidget.h"
 #include "Components/OverlaySlot.h"
+#include "Framework/EidosGameMode.h"
+#include "GameFramework/PlayerController.h"
 
 void UHUDRootWidget::NativeConstruct()
 {
@@ -27,6 +32,21 @@ void UHUDRootWidget::NativeConstruct()
 	{
 		WorkOrderPopupClass = LoadClass<UWorkOrderPopupWidget>(nullptr, TEXT("/Game/Blueprints/WBP/WBP_WorkOrderPopup.WBP_WorkOrderPopup_C"));
 	}
+	if (!PageWorkPriorityEditorClass)
+	{
+		PageWorkPriorityEditorClass = LoadClass<UPageWorkPriorityEditorWidget>(nullptr,
+			TEXT("/Game/Blueprints/WBP/WBP_PageWorkPriorityEditor.WBP_PageWorkPriorityEditor_C"));
+	}
+	if (!SettlementDefeatWidgetClass)
+	{
+		SettlementDefeatWidgetClass = LoadClass<USettlementDefeatWidget>(nullptr,
+			TEXT("/Game/Blueprints/WBP/WBP_SettlementDefeat.WBP_SettlementDefeat_C"));
+	}
+	if (!ScenarioVictoryWidgetClass)
+	{
+		ScenarioVictoryWidgetClass = LoadClass<UScenarioVictoryWidget>(nullptr,
+			TEXT("/Game/Blueprints/WBP/WBP_ScenarioVictory.WBP_ScenarioVictory_C"));
+	}
 
 	if (WBP_PanelNavBarWidget)
 	{
@@ -34,6 +54,31 @@ void UHUDRootWidget::NativeConstruct()
 	}
 	
 	HandlePanelSelected(EInGamePanel::None);
+
+	if (AEidosGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AEidosGameMode>() : nullptr)
+	{
+		GameMode->OnGameOver.AddUniqueDynamic(this, &UHUDRootWidget::HandleGameOver);
+		GameMode->OnGameVictory.AddUniqueDynamic(this, &UHUDRootWidget::HandleGameVictory);
+		if (GameMode->IsGameOver())
+		{
+			ShowSettlementDefeat();
+		}
+		else if (GameMode->IsGameVictory())
+		{
+			ShowScenarioVictory(GameMode->GetVictoryScenarioName(), GameMode->GetVictoryScenarioDescription());
+		}
+	}
+}
+
+void UHUDRootWidget::NativeDestruct()
+{
+	if (AEidosGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AEidosGameMode>() : nullptr)
+	{
+		GameMode->OnGameOver.RemoveDynamic(this, &UHUDRootWidget::HandleGameOver);
+		GameMode->OnGameVictory.RemoveDynamic(this, &UHUDRootWidget::HandleGameVictory);
+	}
+
+	Super::NativeDestruct();
 }
 
 void UHUDRootWidget::HandlePanelSelected(EInGamePanel Panel)
@@ -134,6 +179,32 @@ bool UHUDRootWidget::ShowPageEquipmentEditor(APageCharacter* Page)
 	return true;
 }
 
+bool UHUDRootWidget::ShowPageWorkPriorityEditor(APageCharacter* Page)
+{
+	if (!Page || !Layer_Modal || !PageWorkPriorityEditorClass)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Pages] Cannot open work priority editor. Page=%s Layer=%s Class=%s"),
+			*GetNameSafe(Page), *GetNameSafe(Layer_Modal), *GetNameSafe(PageWorkPriorityEditorClass));
+		return false;
+	}
+
+	if (ActivePageWorkPriorityEditor)
+	{
+		ActivePageWorkPriorityEditor->RemoveFromParent();
+		ActivePageWorkPriorityEditor = nullptr;
+	}
+
+	ActivePageWorkPriorityEditor = CreateWidget<UPageWorkPriorityEditorWidget>(GetOwningPlayer(), PageWorkPriorityEditorClass);
+	if (!ActivePageWorkPriorityEditor) return false;
+	if (UOverlaySlot* ModalSlot = Layer_Modal->AddChildToOverlay(ActivePageWorkPriorityEditor))
+	{
+		ModalSlot->SetHorizontalAlignment(HAlign_Center);
+		ModalSlot->SetVerticalAlignment(VAlign_Center);
+	}
+	ActivePageWorkPriorityEditor->OpenForPage(Page);
+	return true;
+}
+
 bool UHUDRootWidget::ShowWorkOrderPopup()
 {
 	if (!Layer_Modal || !WorkOrderPopupClass) return false;
@@ -142,4 +213,73 @@ bool UHUDRootWidget::ShowWorkOrderPopup()
 	if (!ActiveWorkOrderPopup) return false;
 	if (UOverlaySlot* ModalSlot = Layer_Modal->AddChildToOverlay(ActiveWorkOrderPopup)) { ModalSlot->SetHorizontalAlignment(HAlign_Center); ModalSlot->SetVerticalAlignment(VAlign_Center); }
 	return true;
+}
+
+void UHUDRootWidget::HandleGameOver()
+{
+	ShowSettlementDefeat();
+}
+
+void UHUDRootWidget::HandleGameVictory(FText ScenarioName, FText ScenarioDescription)
+{
+	ShowScenarioVictory(ScenarioName, ScenarioDescription);
+}
+
+void UHUDRootWidget::ShowScenarioVictory(const FText& ScenarioName, const FText& ScenarioDescription)
+{
+	if (!Layer_Modal || !ScenarioVictoryWidgetClass || ActiveScenarioVictoryWidget)
+	{
+		return;
+	}
+
+	ActiveScenarioVictoryWidget = CreateWidget<UScenarioVictoryWidget>(GetOwningPlayer(), ScenarioVictoryWidgetClass);
+	if (!ActiveScenarioVictoryWidget)
+	{
+		return;
+	}
+
+	ActiveScenarioVictoryWidget->SetScenarioResult(ScenarioName, ScenarioDescription);
+	if (UOverlaySlot* ModalSlot = Layer_Modal->AddChildToOverlay(ActiveScenarioVictoryWidget))
+	{
+		ModalSlot->SetHorizontalAlignment(HAlign_Fill);
+		ModalSlot->SetVerticalAlignment(VAlign_Fill);
+	}
+
+	if (APlayerController* PlayerController = GetOwningPlayer())
+	{
+		FInputModeUIOnly InputMode;
+		InputMode.SetWidgetToFocus(ActiveScenarioVictoryWidget->TakeWidget());
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		PlayerController->SetInputMode(InputMode);
+		PlayerController->bShowMouseCursor = true;
+	}
+}
+
+void UHUDRootWidget::ShowSettlementDefeat()
+{
+	if (!Layer_Modal || !SettlementDefeatWidgetClass || ActiveSettlementDefeatWidget)
+	{
+		return;
+	}
+
+	ActiveSettlementDefeatWidget = CreateWidget<USettlementDefeatWidget>(GetOwningPlayer(), SettlementDefeatWidgetClass);
+	if (!ActiveSettlementDefeatWidget)
+	{
+		return;
+	}
+
+	if (UOverlaySlot* ModalSlot = Layer_Modal->AddChildToOverlay(ActiveSettlementDefeatWidget))
+	{
+		ModalSlot->SetHorizontalAlignment(HAlign_Fill);
+		ModalSlot->SetVerticalAlignment(VAlign_Fill);
+	}
+
+	if (APlayerController* PlayerController = GetOwningPlayer())
+	{
+		FInputModeUIOnly InputMode;
+		InputMode.SetWidgetToFocus(ActiveSettlementDefeatWidget->TakeWidget());
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		PlayerController->SetInputMode(InputMode);
+		PlayerController->bShowMouseCursor = true;
+	}
 }

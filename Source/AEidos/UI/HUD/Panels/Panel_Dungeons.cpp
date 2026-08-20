@@ -126,7 +126,7 @@ void UPanel_Dungeons::RefreshFromWorld()
 		FDungeonPortalView View;
 		View.PortalId = Portal.PortalId;
 		View.DisplayName = FText::FromString(Portal.PortalDefId.IsNone() ? TEXT("이름 없는 포탈") : Portal.PortalDefId.ToString());
-		View.TierText = FText::Format(FText::FromString(TEXT("Tier {0}")), Portal.Tier);
+		View.DifficultyText = FText::Format(FText::FromString(TEXT("Difficulty {0}")), FText::AsNumber(Portal.DungeonDifficulty));
 		View.StatusText = BuildPortalStatusText(Portal);
 		View.RaidTimerText = FormatRaidTimer(Portal.RaidTimer);
 		View.StatusColor = BuildPortalStatusColor(Portal);
@@ -249,9 +249,9 @@ void UPanel_Dungeons::RefreshDetailWidgets()
 	{
 		Text_SelectedPortalName->SetText(bHasSelection ? SelectedPortalView.DisplayName : FText::FromString(TEXT("활성 포탈 없음")));
 	}
-	if (Text_SelectedTier)
+	if (Text_SelectedDifficulty)
 	{
-		Text_SelectedTier->SetText(bHasSelection ? SelectedPortalView.TierText : FText::GetEmpty());
+		Text_SelectedDifficulty->SetText(bHasSelection ? SelectedPortalView.DifficultyText : FText::GetEmpty());
 	}
 	if (Text_PortalStatus)
 	{

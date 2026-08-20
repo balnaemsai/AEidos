@@ -4,7 +4,6 @@
 #include "Components/StaticMeshComponent.h"
 #include "Framework/EidosPlayerController.h"
 #include "Entities/Page/PageCharacter.h"
-#include "Entities/Items/InventoryComponent.h"
 #include "UObject/ConstructorHelpers.h"
 
 ADungeonCoreActor::ADungeonCoreActor()
@@ -37,16 +36,23 @@ ADungeonCoreActor::ADungeonCoreActor()
 	CoreLight->SetRelativeLocation(FVector(0.f, 0.f, 40.f));
 }
 
+void ADungeonCoreActor::ConfigureCoreShardRewards(const TArray<FItemStack>& InRewards)
+{
+	CoreShardRewards.Reset();
+	for (const FItemStack& Reward : InRewards)
+	{
+		if (Reward.IsValid())
+		{
+			CoreShardRewards.Add(Reward);
+		}
+	}
+}
+
 void ADungeonCoreActor::ApplyCoreDamage(float DamageAmount, APageCharacter* DamageInstigator)
 {
 	if (bCoreDestroyed || DamageAmount <= 0.f)
 	{
 		return;
-	}
-
-	if (DamageInstigator && DamageInstigator->IsFriendly())
-	{
-		LastDamageInstigator = DamageInstigator;
 	}
 
 	Health = FMath::Max(0.f, Health - DamageAmount);
@@ -88,15 +94,8 @@ void ADungeonCoreActor::DestroyCore()
 	}
 
 	bCoreDestroyed = true;
-	if (APageCharacter* RewardPage = LastDamageInstigator.Get())
-	{
-		if (UInventoryComponent* Inventory = RewardPage->GetInventory())
-		{
-			const int32 Added = Inventory->TryAddItem(CoreShardItemId, CoreShardQuantity);
-			UE_LOG(LogTemp, Log, TEXT("[DungeonCore] Granted core shard ItemId=%s Requested=%d Added=%d PageId=%d"),
-				*CoreShardItemId.ToString(), CoreShardQuantity, Added, RewardPage->GetPageEntityId());
-		}
-	}
+	// The shard is not granted to the attacker. The dungeon runtime creates a
+	// world item at this location so the expedition must recover it before collapse.
 	OnCoreDestroyed.Broadcast(this);
 	Destroy();
 }

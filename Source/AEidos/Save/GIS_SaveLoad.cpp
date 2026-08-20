@@ -10,6 +10,8 @@
 #include "Save/SaveGameParticipant.h"
 #include "Simulation/SimSystem.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "World/Dungeon/WS_DungeonRuntime.h"
+#include "World/Settlement/WS_RaidDirector.h"
 #include "UObject/UObjectIterator.h"
 
 DEFINE_LOG_CATEGORY(LogSaveLoad);
@@ -41,6 +43,14 @@ void UGIS_SaveLoad::ClearPendingSnapshot()
 {
 	PendingSnapshot = FEidosWorldSnapshot{};
 	bHasPendingSnapshot = false;
+}
+
+void UGIS_SaveLoad::StartNewGame(const FString& MapNameHint)
+{
+	ClearPendingSnapshot();
+	bHasNewGameSnapshot = false;
+	NewGameSnapshot = FEidosWorldSnapshot{};
+	BuildNewGameSnapshotIfNeeded(MapNameHint);
 }
 
 void UGIS_SaveLoad::BuildNewGameSnapshotIfNeeded(const FString& MapNameHint)
@@ -81,6 +91,13 @@ void UGIS_SaveLoad::ApplyPendingSnapshotToWorld(UWorld& World)
 
 bool UGIS_SaveLoad::SaveToSlot(UWorld& World, const FString& SlotName, int32 UserIndex)
 {
+	FString FailureReason;
+	if (!CanSaveWorld(World, FailureReason))
+	{
+		UE_LOG(LogSaveLoad, Warning, TEXT("Save rejected: %s"), *FailureReason);
+		return false;
+	}
+
 	UEidosSaveGame* SaveObj = Cast<UEidosSaveGame>(UGameplayStatics::CreateSaveGameObject(UEidosSaveGame::StaticClass()));
 	if (!SaveObj)
 	{
@@ -89,6 +106,31 @@ bool UGIS_SaveLoad::SaveToSlot(UWorld& World, const FString& SlotName, int32 Use
 
 	SaveObj->Snapshot = CaptureWorldSnapshot(World);
 	return UGameplayStatics::SaveGameToSlot(SaveObj, SlotName, UserIndex);
+}
+
+bool UGIS_SaveLoad::CanSaveWorld(const UWorld& World, FString& OutReason) const
+{
+	OutReason.Reset();
+
+	if (const UWS_DungeonRuntime* DungeonRuntime = World.GetSubsystem<UWS_DungeonRuntime>())
+	{
+		if (DungeonRuntime->HasActiveDungeon())
+		{
+			OutReason = TEXT("An active dungeon expedition is not yet supported by the save format.");
+			return false;
+		}
+	}
+
+	if (const UWS_RaidDirector* RaidDirector = World.GetSubsystem<UWS_RaidDirector>())
+	{
+		if (RaidDirector->HasAnyActiveRaid())
+		{
+			OutReason = TEXT("An active raid is not yet supported by the save format.");
+			return false;
+		}
+	}
+
+	return true;
 }
 
 bool UGIS_SaveLoad::LoadFromSlotToPending(const FString& SlotName, int32 UserIndex)

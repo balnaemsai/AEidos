@@ -14,6 +14,8 @@
 #include "Data/Definitions/BlockDefinitionRow.h"
 #include "Data/Definitions/BlockInteractionDefinitionRow.h"
 #include "Data/Definitions/ResearchDefinitionRow.h"
+#include "Data/Definitions/DungeonAttributeDefinitionRow.h"
+#include "Data/Definitions/ScenarioDefinitionRow.h"
 
 DEFINE_LOG_CATEGORY(LogDataRegistry);
 
@@ -392,6 +394,19 @@ const FPortalDefinitionRow* UGIS_DataRegistry::GetPortalDef(FName PortalDefId) c
 	return Table->FindRow<FPortalDefinitionRow>(PortalDefId, TEXT("GetPortalDef"));
 }
 
+UDataTable* UGIS_DataRegistry::GetScenarioTable() const
+{
+	return FindDataTableByName(TEXT("DT_Scenario"));
+}
+
+const FScenarioDefinitionRow* UGIS_DataRegistry::GetScenarioDef(FName ScenarioId) const
+{
+	UDataTable* Table = GetScenarioTable();
+	return Table && !ScenarioId.IsNone()
+		? Table->FindRow<FScenarioDefinitionRow>(ScenarioId, TEXT("GetScenarioDef"))
+		: nullptr;
+}
+
 UDataTable* UGIS_DataRegistry::GetResearchTable() const
 {
 	return FindDataTableByName(TEXT("DT_Research"));
@@ -478,6 +493,59 @@ TArray<FName> UGIS_DataRegistry::GetAllPortalDefIds() const
 
 	Result = Table->GetRowNames();
 	return Result;
+}
+
+UDataTable* UGIS_DataRegistry::GetDungeonAttributeTable() const
+{
+	return FindDataTableByName(TEXT("DT_DungeonAttribute"));
+}
+
+const FDungeonAttributeDefinitionRow* UGIS_DataRegistry::GetDungeonAttributeDef(FName AttributeId) const
+{
+	UDataTable* Table = GetDungeonAttributeTable();
+	return Table && !AttributeId.IsNone()
+		? Table->FindRow<FDungeonAttributeDefinitionRow>(AttributeId, TEXT("GetDungeonAttributeDef"))
+		: nullptr;
+}
+
+void UGIS_DataRegistry::GetEligibleDungeonAttributes(float Difficulty, TArray<const FDungeonAttributeDefinitionRow*>& OutAttributes) const
+{
+	OutAttributes.Reset();
+	UDataTable* Table = GetDungeonAttributeTable();
+	if (!Table)
+	{
+		return;
+	}
+
+	for (const TPair<FName, uint8*>& Pair : Table->GetRowMap())
+	{
+		const FDungeonAttributeDefinitionRow* Row = reinterpret_cast<const FDungeonAttributeDefinitionRow*>(Pair.Value);
+		if (Row && !Row->AttributeId.IsNone() && !Row->CoreShardItemId.IsNone()
+			&& Row->SelectionWeight > 0.f && Difficulty >= Row->MinimumDifficulty && Difficulty <= Row->MaximumDifficulty)
+		{
+			OutAttributes.Add(Row);
+		}
+	}
+}
+
+void UGIS_DataRegistry::GetEligiblePortalDungeonPresets(float Difficulty, TArray<const FPortalDefinitionRow*>& OutPresets) const
+{
+	OutPresets.Reset();
+	UDataTable* Table = GetPortalTable();
+	if (!Table)
+	{
+		return;
+	}
+
+	for (const TPair<FName, uint8*>& Pair : Table->GetRowMap())
+	{
+		const FPortalDefinitionRow* Row = reinterpret_cast<const FPortalDefinitionRow*>(Pair.Value);
+		if (Row && !Row->PortalId.IsNone() && !Row->PresetAsset.IsNull()
+			&& Row->SelectionWeight > 0.f && Difficulty >= Row->MinimumDifficulty && Difficulty <= Row->MaximumDifficulty)
+		{
+			OutPresets.Add(Row);
+		}
+	}
 }
 
 

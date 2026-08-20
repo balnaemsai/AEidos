@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
+#include "Core/Types/ItemTypes.h"
 #include "GameFramework/Actor.h"
 #include "DungeonCoreActor.generated.h"
 
@@ -30,6 +31,16 @@ public:
 	UFUNCTION(BlueprintPure, Category="Dungeon|Core")
 	float GetMaxHealth() const { return MaxHealth; }
 
+	/** Reward metadata is consumed by the dungeon runtime to spawn a recoverable world item. */
+	UFUNCTION(BlueprintPure, Category="Dungeon|Core|Rewards")
+	FName GetCoreShardItemId() const { return CoreShardItemId; }
+
+	UFUNCTION(BlueprintPure, Category="Dungeon|Core|Rewards")
+	int32 GetCoreShardQuantity() const { return CoreShardQuantity; }
+
+	const TArray<FItemStack>& GetCoreShardRewards() const { return CoreShardRewards; }
+	void ConfigureCoreShardRewards(const TArray<FItemStack>& InRewards);
+
 	UPROPERTY(BlueprintAssignable, Category="Dungeon|Core")
 	FOnDungeonCoreDestroyedSignature OnCoreDestroyed;
 
@@ -55,13 +66,15 @@ protected:
 	float InteractDistanceCm = 250.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon|Core|Rewards")
-	FName CoreShardItemId = TEXT("CoreShard_Wood");
+	FName CoreShardItemId = TEXT("PortalShard");
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Dungeon|Core|Rewards", meta=(ClampMin="1"))
 	int32 CoreShardQuantity = 1;
 
+	/** Runtime data wins when present; the legacy single item remains a Blueprint fallback. */
+	UPROPERTY(Transient)
+	TArray<FItemStack> CoreShardRewards;
+
 	UPROPERTY(Transient)
 	bool bCoreDestroyed = false;
-
-	TWeakObjectPtr<APageCharacter> LastDamageInstigator;
 };

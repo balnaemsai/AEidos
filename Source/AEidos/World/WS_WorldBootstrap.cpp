@@ -12,7 +12,9 @@
 #include "UI/GIS_UIRouter.h"
 #include "Simulation/WS_SimulationOrchestrator.h"
 #include "World/Settlement/WS_SettlementSpace.h"
+#include "World/Settlement/WS_SettlementCore.h"
 #include "World/Settlement/WS_PortalDirector.h"
+#include "World/Settlement/WS_RaidDirector.h"
 #include "Combat/WS_CombatDirector.h"
 #include "GameFramework/GameModeBase.h"
 #include "Framework/EidosGameMode.h"
@@ -24,6 +26,8 @@
 #include "World/Settlement/WS_Building.h"
 #include "World/Settlement/WS_Research.h"
 #include "World/Settlement/WS_Population.h"
+#include "Progression/WS_Scenario.h"
+#include "Progression/GIS_ScenarioSession.h"
 
 // 로그 카테고리(있으면 교체)
 DEFINE_LOG_CATEGORY_STATIC(LogWorldBootstrap, Log, All);
@@ -184,7 +188,31 @@ void UWS_WorldBootstrap::ContinueBootstrapAfterDataRegistryReady(bool bOk)
 	
 	if (UGIS_SaveLoad* SL = GI->GetSubsystem<UGIS_SaveLoad>())
 	{
+		// Ensure stateful subsystems participate in snapshot application before it is spawned.
+		World->GetSubsystem<UWS_SettlementCore>();
+		World->GetSubsystem<UWS_Scenario>();
 		SL->ApplyPendingSnapshotToWorld(*World);
+	}
+
+	// A menu choice is intentionally transient: loaded games use their saved scenario state instead.
+	if (UGIS_ScenarioSession* ScenarioSession = GI->GetSubsystem<UGIS_ScenarioSession>())
+	{
+		FName SelectedScenarioId;
+		if (ScenarioSession->ConsumePendingNewGameScenario(SelectedScenarioId))
+		{
+			if (UWS_Scenario* Scenario = World->GetSubsystem<UWS_Scenario>())
+			{
+				if (!Scenario->SelectScenario(SelectedScenarioId))
+				{
+					UE_LOG(LogWorldBootstrap, Warning, TEXT("[WorldBootstrap] Failed to apply selected scenario %s."), *SelectedScenarioId.ToString());
+				}
+			}
+		}
+	}
+
+	if (UWS_SettlementCore* SettlementCore = World->GetSubsystem<UWS_SettlementCore>())
+	{
+		SettlementCore->EnsureSettlementCore();
 	}
 
 	UWS_SimulationOrchestrator* Orch = World->GetSubsystem<UWS_SimulationOrchestrator>();
@@ -202,7 +230,9 @@ void UWS_WorldBootstrap::ContinueBootstrapAfterDataRegistryReady(bool bOk)
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Population>());
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Building>());
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_PortalDirector>());
+	Orch->RegisterSimSystem(World->GetSubsystem<UWS_RaidDirector>());
 	Orch->RegisterSimSystem(World->GetSubsystem<UWS_CombatDirector>());
+	Orch->RegisterSimSystem(World->GetSubsystem<UWS_Scenario>());
 	World->GetSubsystem<UWS_Population>()->EnsureTestPageSpawned(); //테스트용 page 하나 소환 보장
 	
 	Orch->StartMainLoop();

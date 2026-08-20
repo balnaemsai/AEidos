@@ -1,2 +1,0 @@
-/Game/Data/DT_Portal.DT_Portal|PortalDefinitionRow|/Script/AEidos.PortalDefinitionRow
-/Game/Data/ImportTests/DT_Portal_ImportTest.DT_Portal_ImportTest|PortalDefinitionRow|/Script/AEidos.PortalDefinitionRow

@@ -25,6 +25,8 @@ public:
 	UFUNCTION(BlueprintPure, Category="Equipment") bool HasToolTagInSlot(EPageEquipmentSlot Slot, FName ToolTag) const;
 	/** Resolves a required interaction tool as right hand first, then left hand. */
 	UFUNCTION(BlueprintPure, Category="Equipment") bool CanUseToolForInteraction(FName ToolTag) const;
+	/** Tests combat equipment requirements against both hands. Empty requirements always pass. */
+	UFUNCTION(BlueprintPure, Category="Equipment") bool MeetsEquipmentTagRequirements(const TArray<FName>& RequiredTags, bool bRequireAllTags = true) const;
 	UFUNCTION(BlueprintCallable, Category="Equipment") bool EquipFromInventory(FName ItemId, EPageEquipmentSlot Slot);
 	UFUNCTION(BlueprintCallable, Category="Equipment") bool UnequipToInventory(EPageEquipmentSlot Slot);
 
@@ -35,6 +37,7 @@ private:
 	UInventoryComponent* GetOwnerInventory() const;
 	FPageEquipmentSlotState* FindSlot(EPageEquipmentSlot Slot);
 	const FPageEquipmentSlotState* FindSlot(EPageEquipmentSlot Slot) const;
+	bool ItemMatchesEquipmentTag(FName ItemId, FName RequiredTag) const;
 	void EnsureSlots();
 
 	UPROPERTY(VisibleAnywhere, Category="Equipment") TArray<FPageEquipmentSlotState> EquippedSlots;

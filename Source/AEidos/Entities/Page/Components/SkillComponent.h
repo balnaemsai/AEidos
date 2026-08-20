@@ -45,6 +45,12 @@ public:
 	UFUNCTION(BlueprintPure, Category="Skill")
 	float GetSkillMultiplier(FName SkillId) const;
 
+	UFUNCTION(BlueprintPure, Category="Skill|Talent")
+	float GetSkillExperienceGainTalent(FName SkillId) const;
+
+	UFUNCTION(BlueprintPure, Category="Skill|Talent")
+	float GetSkillEffectTalent(FName SkillId) const;
+
 	UFUNCTION(BlueprintPure, Category="Skill")
 	bool HasSkill(FName SkillId) const;
 
@@ -61,10 +67,24 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Skill")
 	TMap<FName, FPageSkillRuntime> Skills;
 
+	/** Every Page rolls one stable value per skill within these inclusive ranges. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Skill|Talent", meta=(ClampMin="0.01"))
+	float ExperienceGainTalentMinimum = 0.85f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Skill|Talent", meta=(ClampMin="0.01"))
+	float ExperienceGainTalentMaximum = 1.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Skill|Talent", meta=(ClampMin="0.01"))
+	float EffectTalentMinimum = 0.90f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Skill|Talent", meta=(ClampMin="0.01"))
+	float EffectTalentMaximum = 1.10f;
+
 private:
 	void AddSkillXP_Internal(FName SkillId, float Amount, bool bAllowPropagation);
 
 	void EnsureSkillExists(FName SkillId);
+	void InitializeTalent(FPageSkillRuntime& SkillState);
 
 	const FSkillDefinitionRow* GetSkillDef(FName SkillId) const;
 

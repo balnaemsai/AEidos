@@ -19,6 +19,10 @@ struct FAutoWorkEntry
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	int32 InitialCount = 1;
+
+	/** Keeps this work order active indefinitely while the building exists. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	bool bRepeat = false;
 };
 
 UENUM(BlueprintType)
@@ -80,6 +84,10 @@ struct FBuildingDefinitionRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TArray<FAutoWorkEntry> AutoWorks;
 
+	/** Completed buildings expose these facility tags to manual work orders. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Work")
+	TArray<FName> WorkSiteTags;
+
 	// Completed buildings contribute to the shared settlement warehouse.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Storage", meta=(ClampMin="0.0"))
 	float StorageWeightCapacity = 0.f;
@@ -90,4 +98,8 @@ struct FBuildingDefinitionRow : public FTableRowBase
 	// Completed lodging buildings increase the number of Pages the settlement can support.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Population", meta=(ClampMin="0"))
 	int32 PageCapacity = 0;
+
+	/** Completed detention facilities determine how many hostile Pages may be held. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Population", meta=(ClampMin="0"))
+	int32 CaptiveCapacity = 0;
 };

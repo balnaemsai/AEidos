@@ -51,8 +51,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Storage")
 	int32 TryStoreItem(FName ItemId, int32 RequestedQuantity, float TotalQuality = 0.f);
 
+	/** Stores a full stack while preserving per-instance data, including PortalShard attributes. */
+	int32 TryStoreItemStack(const FItemStack& ItemStack);
+
 	UFUNCTION(BlueprintCallable, Category="Storage")
 	int32 TryTakeStoredItem(FName ItemId, int32 RequestedQuantity, float& OutRemovedQuality);
+
+	/** Removes an identical stateful stack, retaining the caller's instance data. */
+	bool TryTakeStoredItemStack(const FItemStack& ItemStack);
+
+	/** Offers one stored PortalShard at an existing EP Altar and converts its strengths into attribute reserves. */
+	UFUNCTION(BlueprintCallable, Category="Storage|EP Altar")
+	bool OfferPortalShardAtIndex(int32 StoredStackIndex);
 
 	UFUNCTION(BlueprintCallable, Category="Storage")
 	void DepositPageInventory(APageCharacter* Page);
@@ -79,6 +89,7 @@ protected:
 private:
 	const struct FItemDefinitionRow* FindItemDefinition(FName ItemId) const;
 	const struct FResourceDefinitionRow* FindResourceDefinition(FName ResourceId) const;
+	bool HasCompletedEPAltar() const;
 	void BroadcastChanged();
 	static FName SnapshotKey();
 	static FString EncodeStacks(const TArray<FItemStack>& Stacks);

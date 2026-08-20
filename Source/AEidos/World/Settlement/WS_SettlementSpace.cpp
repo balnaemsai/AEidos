@@ -4,6 +4,9 @@
 #include "World/Settlement/WS_SettlementSpace.h"
 
 #include "Engine/World.h"
+#include "EngineUtils.h"
+#include "NavigationSystem.h"
+#include "NavMesh/NavMeshBoundsVolume.h"
 #include "Save/SaveGameSchema.h"
 #include "World/Settlement/TerritoryChunkActor.h"
 #include "World/Settlement/WS_Economy.h"
@@ -38,6 +41,8 @@ void UWS_SettlementSpace::Deinitialize()
 {
 	OwnedChunks.Reset();
 	SpawnedChunks.Reset();
+	RuntimeNavigationBounds.Reset();
+	RuntimeNavigationBoundsBaseExtent = FVector::ZeroVector;
 	Super::Deinitialize();
 }
 
@@ -70,6 +75,7 @@ void UWS_SettlementSpace::ApplySnapshot_Implementation(const FEidosWorldSnapshot
 	}
 
 	RebuildChunkActorsFromOwned();
+	UpdateRuntimeNavigationBounds();
 	OnTerritoryChanged.Broadcast();
 }
 
@@ -337,6 +343,7 @@ bool UWS_SettlementSpace::AcquireChunkInternal(const FIntPoint& Coord, FString& 
 
 	OwnedChunks.Add(Coord);
 	SpawnChunkActor(Coord);
+	UpdateRuntimeNavigationBounds();
 	OnTerritoryChanged.Broadcast();
 
 	UE_LOG(LogTemp, Log,
@@ -347,4 +354,93 @@ bool UWS_SettlementSpace::AcquireChunkInternal(const FIntPoint& Coord, FString& 
 
 	OutReason.Reset();
 	return true;
+}
+
+ANavMeshBoundsVolume* UWS_SettlementSpace::FindOrSpawnNavigationBounds()
+{
+	if (ANavMeshBoundsVolume* Bounds = RuntimeNavigationBounds.Get())
+	{
+		return Bounds;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+
+	// Reuse an old manually placed volume during migration, but new maps need none.
+	for (TActorIterator<ANavMeshBoundsVolume> It(World); It; ++It)
+	{
+		if (ANavMeshBoundsVolume* Bounds = *It; IsValid(Bounds))
+		{
+			RuntimeNavigationBounds = Bounds;
+			return Bounds;
+		}
+	}
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ANavMeshBoundsVolume* Bounds = World->SpawnActor<ANavMeshBoundsVolume>(ANavMeshBoundsVolume::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, Params);
+	if (Bounds)
+	{
+		Bounds->SetActorLabel(TEXT("RuntimeSettlementNavBounds"));
+		RuntimeNavigationBounds = Bounds;
+	}
+	return Bounds;
+}
+
+void UWS_SettlementSpace::UpdateRuntimeNavigationBounds()
+{
+	if (OwnedChunks.IsEmpty())
+	{
+		return;
+	}
+
+	ANavMeshBoundsVolume* Bounds = FindOrSpawnNavigationBounds();
+	UWorld* World = GetWorld();
+	if (!Bounds || !World)
+	{
+		return;
+	}
+
+	FBox TerritoryBounds(EForceInit::ForceInit);
+	for (const FIntPoint& Coord : OwnedChunks)
+	{
+		TerritoryBounds += CoordToWorldLocation(Coord);
+	}
+
+	const FVector TerritoryCenter = TerritoryBounds.GetCenter();
+	const FVector TerritoryExtent = TerritoryBounds.GetExtent();
+	const FVector DesiredExtent(
+		TerritoryExtent.X + ChunkSizeCm * 0.5f + NavigationPaddingCm,
+		TerritoryExtent.Y + ChunkSizeCm * 0.5f + NavigationPaddingCm,
+		NavigationHeightCm * 0.5f);
+	const FVector DesiredCenter(TerritoryCenter.X, TerritoryCenter.Y, ChunkZ + DesiredExtent.Z);
+
+	if (RuntimeNavigationBoundsBaseExtent.IsNearlyZero())
+	{
+		const FVector CurrentExtent = Bounds->GetComponentsBoundingBox(true).GetExtent();
+		const FVector CurrentScale = Bounds->GetActorScale3D().GetAbs();
+		RuntimeNavigationBoundsBaseExtent = FVector(
+			CurrentExtent.X / FMath::Max(CurrentScale.X, KINDA_SMALL_NUMBER),
+			CurrentExtent.Y / FMath::Max(CurrentScale.Y, KINDA_SMALL_NUMBER),
+			CurrentExtent.Z / FMath::Max(CurrentScale.Z, KINDA_SMALL_NUMBER));
+	}
+
+	if (RuntimeNavigationBoundsBaseExtent.GetMin() <= KINDA_SMALL_NUMBER)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[SettlementSpace] Runtime nav bounds has an invalid base brush extent."));
+		return;
+	}
+
+	Bounds->SetActorLocation(DesiredCenter);
+	Bounds->SetActorScale3D(DesiredExtent / RuntimeNavigationBoundsBaseExtent);
+	if (UNavigationSystemV1* NavigationSystem = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World))
+	{
+		NavigationSystem->OnNavigationBoundsUpdated(Bounds);
+		NavigationSystem->Build();
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[SettlementSpace] Updated runtime nav bounds Center=%s Extent=%s"), *DesiredCenter.ToString(), *DesiredExtent.ToString());
 }

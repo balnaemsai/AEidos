@@ -36,9 +36,8 @@ void UDungeonEntry::Setup(const FDungeonPortalView& InView)
 
 	if (Text_Subtitle)
 	{
-		Text_Subtitle->SetText(FText::Format(FText::FromString(TEXT("{0} · {1}")), ViewData.TierText, ViewData.StatusText));
+		Text_Subtitle->SetText(FText::Format(FText::FromString(TEXT("{0} · {1}")), ViewData.DifficultyText, ViewData.StatusText));
 	}
-
 	if (Text_Timer)
 	{
 		Text_Timer->SetText(ViewData.RaidTimerText);

@@ -111,6 +111,53 @@ int32 UWS_Building::GetCompletedPageCapacity() const
 	return TotalCapacity;
 }
 
+int32 UWS_Building::GetCompletedCaptiveCapacity() const
+{
+	int32 TotalCapacity = 0;
+	for (const FConstructionSiteState& Site : ConstructionSites)
+	{
+		if (Site.State != EConstructionSiteLifecycle::Completed)
+		{
+			continue;
+		}
+
+		if (const FBuildingDefinitionRow* Definition = FindBuildingDef(Site.BuildingId))
+		{
+			TotalCapacity += FMath::Max(0, Definition->CaptiveCapacity);
+		}
+	}
+
+	return TotalCapacity;
+}
+
+bool UWS_Building::FindCompletedWorkSite(FName WorkSiteTag, FVector& OutLocation) const
+{
+	OutLocation = FVector::ZeroVector;
+	if (WorkSiteTag.IsNone())
+	{
+		return false;
+	}
+
+	for (const FConstructionSiteState& Site : ConstructionSites)
+	{
+		if (Site.State != EConstructionSiteLifecycle::Completed)
+		{
+			continue;
+		}
+
+		const FBuildingDefinitionRow* Definition = FindBuildingDef(Site.BuildingId);
+		if (!Definition || !Definition->WorkSiteTags.Contains(WorkSiteTag))
+		{
+			continue;
+		}
+
+		OutLocation = Site.FinalActor.IsValid() ? Site.FinalActor->GetActorLocation() : Site.Location;
+		return true;
+	}
+
+	return false;
+}
+
 const FBuildingDefinitionRow* UWS_Building::FindBuildingDef(FName BuildingId) const
 {
 	return BuildingDefs.Find(BuildingId);
@@ -130,6 +177,24 @@ FConstructionSiteState* UWS_Building::FindConstructionSiteByRequestId(int32 Work
 	{
 		return Site.WorkRequestId == WorkRequestId;
 	});
+}
+
+bool UWS_Building::FindConstructionWorkLocationForRequest(int32 WorkRequestId, FVector& OutLocation) const
+{
+	const FConstructionSiteState* Site = ConstructionSites.FindByPredicate([WorkRequestId](const FConstructionSiteState& Candidate)
+	{
+		return Candidate.WorkRequestId == WorkRequestId
+			&& Candidate.State != EConstructionSiteLifecycle::Cancelled
+			&& Candidate.State != EConstructionSiteLifecycle::Failed
+			&& Candidate.State != EConstructionSiteLifecycle::Completed;
+	});
+	if (!Site)
+	{
+		return false;
+	}
+
+	const FBuildingDefinitionRow* Def = FindBuildingDef(Site->BuildingId);
+	return Def && FindConstructionWorkLocation(*Def, Site->Location, Site->YawDeg, OutLocation);
 }
 
 bool UWS_Building::IntersectsAnyPlacedOrConstruction(const FBuildingDefinitionRow& Def, FVector Location) const
@@ -167,6 +232,49 @@ bool UWS_Building::IntersectsAnyPlacedOrConstruction(const FBuildingDefinitionRo
 	return false;
 }
 
+bool UWS_Building::FindConstructionWorkLocation(const FBuildingDefinitionRow& Def, FVector Location, float YawDeg, FVector& OutLocation) const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	// Keep the worker just outside the construction footprint, on the side defined
+	// by the building rotation. This location is fixed for the site's whole lifetime.
+	const float WorkspaceOffset = Def.Footprint.X * 0.5f + 140.f;
+	const FVector HorizontalLocation = Location + FRotationMatrix(FRotator(0.f, YawDeg, 0.f)).TransformVector(FVector(WorkspaceOffset, 0.f, 0.f));
+
+	FHitResult GroundHit;
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(ConstructionWorkLocation), false);
+	const FVector TraceStart = HorizontalLocation + FVector(0.f, 0.f, 5000.f);
+	const FVector TraceEnd = HorizontalLocation - FVector(0.f, 0.f, 10000.f);
+	if (!World->LineTraceSingleByChannel(GroundHit, TraceStart, TraceEnd, ECC_Visibility, QueryParams))
+	{
+		return false;
+	}
+
+	OutLocation = GroundHit.ImpactPoint + FVector(0.f, 0.f, 101.f);
+	return IsConstructionWorkLocationFree(OutLocation);
+}
+
+bool UWS_Building::IsConstructionWorkLocationFree(const FVector& WorkLocation) const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(ConstructionWorkClearance), false);
+	return !World->OverlapBlockingTestByChannel(
+		WorkLocation,
+		FQuat::Identity,
+		ECC_Pawn,
+		FCollisionShape::MakeCapsule(42.f, 96.f),
+		QueryParams);
+}
+
 bool UWS_Building::ValidatePlacement(FName BuildingId, FVector Location, float YawDeg, FString& OutReason) const
 {
 	const FBuildingDefinitionRow* Def = FindBuildingDef(BuildingId);
@@ -186,6 +294,13 @@ bool UWS_Building::ValidatePlacement(FName BuildingId, FVector Location, float Y
 	if (IntersectsAnyPlacedOrConstruction(*Def, Location))
 	{
 		OutReason = TEXT("Placement overlaps existing building/site");
+		return false;
+	}
+
+	FVector WorkLocation;
+	if (!FindConstructionWorkLocation(*Def, Location, YawDeg, WorkLocation))
+	{
+		OutReason = TEXT("Construction work space is blocked or has no supporting ground");
 		return false;
 	}
 
@@ -553,7 +668,7 @@ void UWS_Building::RegisterAutoWorksForBuilding(FName BuildingId, const FVector&
 		FWorkRequest Request;
 		Request.WorkId = Auto.WorkId;
 		Request.Priority = Auto.Priority;
-		Request.Mode = EWorkRequestMode::Count;
+		Request.Mode = Auto.bRepeat ? EWorkRequestMode::Repeat : EWorkRequestMode::Count;
 		Request.RemainingCount = FMath::Max(1, Auto.InitialCount);
 		WorkSubsystem->AddWorkRequest(Request);
 	}

@@ -25,11 +25,9 @@ void UMainMenuWidget::NativeOnInitialized()
 
 void UMainMenuWidget::OnClickNewGame()
 {
-	SetBusy(true, TEXT("Preparing New Game..."));
-
 	if (AMenuPlayerController* MPC = Cast<AMenuPlayerController>(GetOwningPlayer()))
 	{
-		MPC->RequestNewGame();
+		MPC->ShowScenarioSelection();
 		return;
 	}
 
@@ -42,7 +40,10 @@ void UMainMenuWidget::OnClickLoadGame()
 
 	if (AMenuPlayerController* MPC = Cast<AMenuPlayerController>(GetOwningPlayer()))
 	{
-		MPC->RequestLoadGame(TEXT("Slot0"), 0);
+		if (!MPC->RequestLoadGame(TEXT("Slot0"), 0))
+		{
+			SetBusy(false, TEXT("No valid save was found in Slot 0."));
+		}
 		return;
 	}
 

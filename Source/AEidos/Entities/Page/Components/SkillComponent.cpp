@@ -18,6 +18,11 @@ USkillComponent::USkillComponent()
 void USkillComponent::SetAllSkillStates(const TMap<FName, FPageSkillRuntime>& InStates)
 {
 	Skills = InStates;
+	for (TPair<FName, FPageSkillRuntime>& Pair : Skills)
+	{
+		Pair.Value.SkillId = Pair.Key;
+		InitializeTalent(Pair.Value);
+	}
 }
 
 bool USkillComponent::HasSkill(FName SkillId) const
@@ -35,14 +40,33 @@ void USkillComponent::GrantSkill(FName SkillId)
 
 void USkillComponent::EnsureSkillExists(FName SkillId)
 {
+	if (FPageSkillRuntime* ExistingState = Skills.Find(SkillId))
+	{
+		InitializeTalent(*ExistingState);
+		return;
+	}
+
 	if (!Skills.Contains(SkillId))
 	{
 		FPageSkillRuntime NewState;
 		NewState.SkillId = SkillId;
 		NewState.TotalXP = 0.f;
 		NewState.Level = 0;
+		InitializeTalent(NewState);
 		Skills.Add(SkillId, NewState);
 	}
+}
+
+void USkillComponent::InitializeTalent(FPageSkillRuntime& SkillState)
+{
+	if (SkillState.bTalentInitialized) return;
+	const float XpMin = FMath::Min(ExperienceGainTalentMinimum, ExperienceGainTalentMaximum);
+	const float XpMax = FMath::Max(ExperienceGainTalentMinimum, ExperienceGainTalentMaximum);
+	const float EffectMin = FMath::Min(EffectTalentMinimum, EffectTalentMaximum);
+	const float EffectMax = FMath::Max(EffectTalentMinimum, EffectTalentMaximum);
+	SkillState.ExperienceGainTalent = FMath::FRandRange(XpMin, XpMax);
+	SkillState.EffectTalent = FMath::FRandRange(EffectMin, EffectMax);
+	SkillState.bTalentInitialized = true;
 }
 
 const FSkillDefinitionRow* USkillComponent::GetSkillDef(FName SkillId) const
@@ -141,7 +165,7 @@ void USkillComponent::AddSkillXP_Internal(FName SkillId, float Amount, bool bAll
 	EnsureSkillExists(SkillId);
 
 	FPageSkillRuntime& State = Skills.FindChecked(SkillId);
-	State.TotalXP += Amount;
+	State.TotalXP += Amount * State.ExperienceGainTalent;
 	State.Level = EvaluateLevelFromXP(*Def, State.TotalXP);
 
 	if (bAllowPropagation)
@@ -187,6 +211,18 @@ float USkillComponent::GetSkillMultiplier(FName SkillId) const
 	}
 
 	const int32 Level = GetSkillLevel(SkillId);
-	return 1.f + (float)Level * Def->MultiplierPerLevel;
+	return (1.f + (float)Level * Def->MultiplierPerLevel) * GetSkillEffectTalent(SkillId);
+}
+
+float USkillComponent::GetSkillExperienceGainTalent(FName SkillId) const
+{
+	if (const FPageSkillRuntime* State = Skills.Find(SkillId)) return State->ExperienceGainTalent;
+	return 1.f;
+}
+
+float USkillComponent::GetSkillEffectTalent(FName SkillId) const
+{
+	if (const FPageSkillRuntime* State = Skills.Find(SkillId)) return State->EffectTalent;
+	return 1.f;
 }
 

@@ -223,25 +223,30 @@ bool UPanel_Items::MoveSelectedItems(bool bToStorage)
 	{
 		const FItemStack* Stack = FindStack(Selection.ItemId, bSourceIsStorage);
 		if (!Stack) continue;
+		const FItemStack StackCopy = *Stack;
 		if (bToStorage)
 		{
-			const int32 Stored = Storage->TryStoreItem(Stack->ItemId, Stack->Quantity, Stack->TotalQuality);
+			const int32 Stored = Storage->TryStoreItemStack(StackCopy);
 			if (Stored > 0)
 			{
 				float RemovedQuality = 0.f;
-				const int32 Removed = Inventory->TryRemoveItem(Stack->ItemId, Stored, RemovedQuality);
-				if (Removed != Stored) { float Ignored = 0.f; Storage->TryTakeStoredItem(Stack->ItemId, Stored - Removed, Ignored); }
+				const int32 Removed = StackCopy.DungeonAttributes.IsEmpty()
+					? Inventory->TryRemoveItem(StackCopy.ItemId, Stored, RemovedQuality)
+					: (Inventory->TryRemoveItemStack(StackCopy) ? StackCopy.Quantity : 0);
+				if (Removed != Stored) { if (!StackCopy.DungeonAttributes.IsEmpty()) Storage->TryTakeStoredItemStack(StackCopy); else { float Ignored = 0.f; Storage->TryTakeStoredItem(StackCopy.ItemId, Stored - Removed, Ignored); } }
 				bMovedAny |= Removed > 0;
 			}
 		}
 		else
 		{
 			float TakenQuality = 0.f;
-			const int32 Taken = Storage->TryTakeStoredItem(Stack->ItemId, Stack->Quantity, TakenQuality);
+			const int32 Taken = StackCopy.DungeonAttributes.IsEmpty()
+				? Storage->TryTakeStoredItem(StackCopy.ItemId, StackCopy.Quantity, TakenQuality)
+				: (Storage->TryTakeStoredItemStack(StackCopy) ? StackCopy.Quantity : 0);
 			if (Taken > 0)
 			{
-				const int32 Added = Inventory->TryAddItem(Stack->ItemId, Taken, TakenQuality);
-				if (Added != Taken) Storage->TryStoreItem(Stack->ItemId, Taken - Added, Taken > 0 ? TakenQuality * static_cast<float>(Taken - Added) / Taken : 0.f);
+				const int32 Added = StackCopy.DungeonAttributes.IsEmpty() ? Inventory->TryAddItem(StackCopy.ItemId, Taken, TakenQuality) : Inventory->TryAddItemStack(StackCopy);
+				if (Added != Taken) { if (!StackCopy.DungeonAttributes.IsEmpty()) Storage->TryStoreItemStack(StackCopy); else Storage->TryStoreItem(StackCopy.ItemId, Taken - Added, Taken > 0 ? TakenQuality * static_cast<float>(Taken - Added) / Taken : 0.f); }
 				bMovedAny |= Added > 0;
 			}
 		}

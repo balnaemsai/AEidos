@@ -1,0 +1,20 @@
+Name,DisplayName,DefaultStartingAmount,bSavable,SortOrder,UnitWeight,UnitVolume
+EP,Eidos Point,300,True,0,0.01,0.01
+Food,Food,50,True,10,0.10,0.20
+Wood,Wood,80,True,20,0.20,1.00
+Stone,Stone,60,True,30,0.70,0.80
+Copper,Copper,0,True,50,0.80,0.27
+Gold,Gold,0,True,60,0.40,0.06
+Iron,Iron,0,True,70,0.70,0.27
+Coal,Coal,0,True,80,0.15,0.55
+Petroleum,Petroleum,0,True,90,0.15,0.55
+Eidos_Stone,Eidos Stone,0,True,100,0.60,0.10
+Soil_Attribute,Soil Attribute,0,True,110,0,0
+Wood_Attribute,Wood Attribute,0,True,111,0,0
+Stone_Attribute,Stone Attribute,0,True,112,0,0
+Copper_Attribute,Copper Attribute,0,True,113,0,0
+Gold_Attribute,Gold Attribute,0,True,114,0,0
+Iron_Attribute,Iron Attribute,0,True,115,0,0
+Coal_Attribute,Coal Attribute,0,True,116,0,0
+Petroleum_Attribute,Petroleum Attribute,0,True,117,0,0
+Eidos_Attribute,Eidos Attribute,0,True,118,0,0

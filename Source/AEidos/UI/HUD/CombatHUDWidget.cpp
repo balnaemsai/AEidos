@@ -190,6 +190,13 @@ FPageQuickSlotView UCombatHUDWidget::BuildSlotView(APageCharacter* ActivePage, i
 		View.DisabledReason = FText::FromString(TEXT("Skill unavailable"));
 		return View;
 	}
+	if (!ActivePage->GetEquipment() || !ActivePage->GetEquipment()->MeetsEquipmentTagRequirements(
+		SkillDef->RequiredEquipmentTags,
+		SkillDef->bRequireAllEquipmentTags))
+	{
+		View.DisabledReason = FText::FromString(TEXT("Required weapon not equipped"));
+		return View;
+	}
 
 	View.ActionPointCost = SkillDef->CombatActionPointCost;
 	View.bRequiresTarget = SkillDef->bRequiresTarget;

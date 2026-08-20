@@ -41,15 +41,15 @@ void APortalActor::BeginPlay()
 	}
 }
 
-void APortalActor::InitializePortal(int32 InPortalId, int32 InTier)
+void APortalActor::InitializePortal(int32 InPortalId, float InDungeonDifficulty)
 {
 	PortalId = InPortalId;
-	Tier = InTier;
+	DungeonDifficulty = FMath::Max(0.5f, InDungeonDifficulty);
 
 	UE_LOG(LogTemp, Log,
-		TEXT("[PortalActor] InitializePortal PortalId=%d Tier=%d"),
+		TEXT("[PortalActor] InitializePortal PortalId=%d Difficulty=%.2f"),
 		PortalId,
-		Tier);
+		DungeonDifficulty);
 
 	BP_OnPortalInitialized();
 }

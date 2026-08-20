@@ -12,9 +12,13 @@
 class UPanelNavBarWidget;
 class UPanelHostWidget;
 class UCombatHUDWidget;
+class USettlementCoreHUDWidget;
+class USettlementDefeatWidget;
+class UScenarioVictoryWidget;
 class UPanel_Pages;
 class UPageSkillEditorWidget;
 class UPageEquipmentEditorWidget;
+class UPageWorkPriorityEditorWidget;
 class UWorkOrderPopupWidget;
 class APageCharacter;
 
@@ -42,11 +46,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Equipment")
 	bool ShowPageEquipmentEditor(APageCharacter* Page);
 
+	UFUNCTION(BlueprintCallable, Category="Pages|Work")
+	bool ShowPageWorkPriorityEditor(APageCharacter* Page);
+
 	UFUNCTION(BlueprintCallable, Category="Work")
 	bool ShowWorkOrderPopup();
 
 protected:
 	virtual void NativeConstruct() override;
+	virtual void NativeDestruct() override;
 
 	UPROPERTY(meta = (BindWidget))
 	UOverlay* Layer_BaseHUD;
@@ -60,6 +68,14 @@ protected:
 	UFUNCTION()
 	void HandlePanelSelected(EInGamePanel Panel);
 
+	UFUNCTION()
+	void HandleGameOver();
+	UFUNCTION()
+	void HandleGameVictory(FText ScenarioName, FText ScenarioDescription);
+
+	void ShowSettlementDefeat();
+	void ShowScenarioVictory(const FText& ScenarioName, const FText& ScenarioDescription);
+
 	EInGamePanel ActivePanel = EInGamePanel::None;
 
 	UPROPERTY(meta = (BindWidget))
@@ -67,6 +83,9 @@ protected:
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	UCombatHUDWidget* CombatHUD;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<USettlementCoreHUDWidget> SettlementCoreHUD;
 
 	UPROPERTY(meta = (BindWidget))
 	UOverlay* Layer_Modal;
@@ -83,8 +102,26 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UPageEquipmentEditorWidget> ActivePageEquipmentEditor;
 
+	UPROPERTY(EditDefaultsOnly, Category="Pages|Work")
+	TSubclassOf<UPageWorkPriorityEditorWidget> PageWorkPriorityEditorClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UPageWorkPriorityEditorWidget> ActivePageWorkPriorityEditor;
+
 	UPROPERTY(EditDefaultsOnly, Category="Work")
 	TSubclassOf<UWorkOrderPopupWidget> WorkOrderPopupClass;
 	UPROPERTY(Transient) TObjectPtr<UWorkOrderPopupWidget> ActiveWorkOrderPopup;
+
+	UPROPERTY(EditDefaultsOnly, Category="Defeat")
+	TSubclassOf<USettlementDefeatWidget> SettlementDefeatWidgetClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<USettlementDefeatWidget> ActiveSettlementDefeatWidget;
+
+	UPROPERTY(EditDefaultsOnly, Category="Victory")
+	TSubclassOf<UScenarioVictoryWidget> ScenarioVictoryWidgetClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UScenarioVictoryWidget> ActiveScenarioVictoryWidget;
 	
 };

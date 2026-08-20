@@ -1,3 +1,0 @@
-Name,ResearchId,DisplayName,Description,ResearchWorkId,PrerequisiteResearchIds
-BasicCrafting,BasicCrafting,Basic Crafting,"Unlocks the first practical settlement recipes.",Research_BasicCrafting,()
-StoneMasonry,StoneMasonry,Stone Masonry,"Unlocks buildings that use worked stone.",Research_StoneMasonry,"(""BasicCrafting"")"

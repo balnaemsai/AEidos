@@ -19,11 +19,21 @@ public:
 	UPROPERTY(EditDefaultsOnly)
 	TSubclassOf<UUserWidget> MainMenuWidgetClass;
 
+	UPROPERTY(EditDefaultsOnly, Category="UI")
+	TSubclassOf<UUserWidget> ScenarioSelectionWidgetClass;
+
 	UFUNCTION(BlueprintCallable)
 	void ShowMainMenu();
 
+	UFUNCTION(BlueprintCallable)
+	void ShowScenarioSelection();
+
+	/** Restores the original menu after the scenario picker is closed. */
+	void FocusMainMenu();
+
 	void RequestNewGame();
-	void RequestLoadGame(const FString& SlotName, int32 UserIndex);
+	/** Returns false without leaving the menu when the requested save cannot be loaded. */
+	bool RequestLoadGame(const FString& SlotName, int32 UserIndex);
 
 protected:
 	
@@ -37,5 +47,8 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UUserWidget> MainMenuWidget;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UUserWidget> ScenarioSelectionWidget;
 	
 };

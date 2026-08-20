@@ -38,6 +38,14 @@ namespace
 			{
 				return FText::FromString(TEXT("사망"));
 			}
+			if (Stats->IsDowned())
+			{
+				return FText::Format(FText::FromString(TEXT("기절 | 구조까지 {0}초")), FMath::CeilToInt(Stats->GetDownedTimeRemaining()));
+			}
+			if (Stats->IsRecovering())
+			{
+				return FText::Format(FText::FromString(TEXT("회복 중 | 행동 가능까지 {0}초")), FMath::CeilToInt(Stats->GetRecoveryTimeRemaining()));
+			}
 		}
 
 		FText BaseStatus;
@@ -54,6 +62,10 @@ namespace
 		{
 			BaseStatus = Page->HasActiveCombatTurn() ? FText::FromString(TEXT("전투 중 (행동 가능)")) : FText::FromString(TEXT("전투 중"));
 		}
+		else if (Page->IsManualWorkOverrideActive())
+		{
+			BaseStatus = FText::FromString(TEXT("수동 조작 중"));
+		}
 		else if (Page->CurrentJobState.bIsActive)
 		{
 			BaseStatus = FText::Format(FText::FromString(TEXT("{0} 작업 중")), FText::FromName(Page->CurrentJobState.WorkId));
@@ -63,12 +75,20 @@ namespace
 			BaseStatus = FText::FromString(TEXT("대기 중"));
 		}
 
+		FString StatusSuffix;
 		if (Page->IsSettlementOverCapacity())
 		{
-			return FText::Format(FText::FromString(TEXT("{0} | 수용량 초과")), BaseStatus);
+			StatusSuffix += TEXT("수용량 초과");
+		}
+		if (Page->HasSettlementFoodShortage())
+		{
+			const FString StarvationText = FString::Printf(TEXT("굶주림 %d%%"), FMath::RoundToInt(Page->GetSettlementStarvationSeverity() * 100.f));
+			StatusSuffix += StatusSuffix.IsEmpty() ? StarvationText : TEXT(" | ") + StarvationText;
 		}
 
-		return BaseStatus;
+		return StatusSuffix.IsEmpty()
+			? BaseStatus
+			: FText::Format(FText::FromString(TEXT("{0} | {1}")), BaseStatus, FText::FromString(StatusSuffix));
 	}
 
 	void AutoPopulateQuickBarIfNeeded(APageCharacter* Page, UGIS_DataRegistry* Registry)
@@ -206,6 +226,14 @@ void UPanel_Pages::NativeConstruct()
 	{
 		Button_Equipment->OnClicked.AddDynamic(this, &UPanel_Pages::HandleEquipmentClicked);
 	}
+	if (Button_WorkPriorities)
+	{
+		Button_WorkPriorities->OnClicked.AddDynamic(this, &UPanel_Pages::HandleWorkPrioritiesClicked);
+	}
+	if (Button_ExpeditionRoster)
+	{
+		Button_ExpeditionRoster->OnClicked.AddDynamic(this, &UPanel_Pages::HandleExpeditionRosterClicked);
+	}
 	if (Button_RecruitCaptive)
 	{
 		Button_RecruitCaptive->OnClicked.AddDynamic(this, &UPanel_Pages::HandleRecruitCaptiveClicked);
@@ -224,6 +252,24 @@ void UPanel_Pages::NativeDestruct()
 	UnbindWorldActorDestroyed();
 	UnbindObservedStats();
 	Super::NativeDestruct();
+}
+
+void UPanel_Pages::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	if (!InspectedCaptive.IsValid())
+	{
+		CaptiveDetailRefreshElapsed = 0.f;
+		return;
+	}
+
+	CaptiveDetailRefreshElapsed += InDeltaTime;
+	if (CaptiveDetailRefreshElapsed >= 0.25f)
+	{
+		CaptiveDetailRefreshElapsed = 0.f;
+		RefreshSelectedPageVitals();
+	}
 }
 
 void UPanel_Pages::OnPanelShown_Implementation()
@@ -477,12 +523,55 @@ void UPanel_Pages::RefreshDetailWidgets()
 
 	if (Text_Status)
 	{
-		Text_Status->SetText(bHasSelectedPage ? SelectedPageSummary.StatusText : FText::GetEmpty());
+		FText StatusText = bHasSelectedPage ? SelectedPageSummary.StatusText : FText::GetEmpty();
+		if (bHasSelectedPage && SelectedPageSummary.bIsCaptive)
+		{
+			if (UWorld* World = GetWorld())
+			{
+				if (UWS_Population* Population = World->GetSubsystem<UWS_Population>())
+				{
+					if (APageCharacter* Captive = Population->FindCaptiveById(SelectedPageSummary.PageId))
+					{
+						const int32 Resistance = FMath::CeilToInt(Captive->GetCaptiveResistance());
+						if (Population->IsCaptiveRecruitmentActive(SelectedPageSummary.PageId))
+						{
+							StatusText = FText::Format(FText::FromString(TEXT("수감 중 | 저항 {0} | 포섭 진행 중")), Resistance);
+						}
+						else if (Population->IsCaptiveRecruitmentRequested(SelectedPageSummary.PageId))
+						{
+							StatusText = FText::Format(FText::FromString(TEXT("수감 중 | 저항 {0} | 포섭 대기")), Resistance);
+						}
+						else
+						{
+							StatusText = FText::Format(FText::FromString(TEXT("수감 중 | 저항 {0}")), Resistance);
+						}
+					}
+				}
+			}
+		}
+		Text_Status->SetText(StatusText);
 	}
 
 	if (Button_RecruitCaptive)
 	{
 		Button_RecruitCaptive->SetVisibility(SelectedPageSummary.bIsCaptive ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+	if (Text_RecruitCaptive)
+	{
+		FText ButtonLabel = FText::FromString(TEXT("포섭 시작"));
+		if (SelectedPageSummary.bIsCaptive)
+		{
+			if (UWorld* World = GetWorld())
+			{
+				if (UWS_Population* Population = World->GetSubsystem<UWS_Population>())
+				{
+					ButtonLabel = Population->IsCaptiveRecruitmentRequested(SelectedPageSummary.PageId)
+						? FText::FromString(TEXT("포섭 중단"))
+						: FText::FromString(TEXT("포섭 시작"));
+				}
+			}
+		}
+		Text_RecruitCaptive->SetText(ButtonLabel);
 	}
 
 	const ESlateVisibility ManagementVisibility = bHasSelectedPage && !SelectedPageSummary.bIsCaptive
@@ -499,6 +588,30 @@ void UPanel_Pages::RefreshDetailWidgets()
 	if (Button_Equipment)
 	{
 		Button_Equipment->SetVisibility(ManagementVisibility);
+	}
+	if (Button_WorkPriorities)
+	{
+		Button_WorkPriorities->SetVisibility(ManagementVisibility);
+	}
+	if (Button_ExpeditionRoster)
+	{
+		Button_ExpeditionRoster->SetVisibility(ManagementVisibility);
+		Button_ExpeditionRoster->SetIsEnabled(bHasSelectedPage && !SelectedPageSummary.bIsDead && !SelectedPageSummary.bIsInDungeon);
+	}
+	if (Text_ExpeditionRoster)
+	{
+		bool bRostered = false;
+		if (bHasSelectedPage)
+		{
+			if (UWorld* World = GetWorld())
+			{
+				if (UWS_Population* Population = World->GetSubsystem<UWS_Population>())
+				{
+					bRostered = Population->IsPageInExpeditionRoster(SelectedPageSummary.PageId);
+				}
+			}
+		}
+		Text_ExpeditionRoster->SetText(bRostered ? FText::FromString(TEXT("원정: 편성됨")) : FText::FromString(TEXT("원정: 미편성")));
 	}
 
 	if (Text_Volume)
@@ -701,6 +814,45 @@ void UPanel_Pages::HandleEquipmentClicked()
 	}
 }
 
+void UPanel_Pages::HandleWorkPrioritiesClicked()
+{
+	if (SelectedPageSummary.PageId == INDEX_NONE)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Pages] Work priority editor ignored because no Page is selected"));
+		return;
+	}
+
+	if (AEidosPlayerController* EidosPC = Cast<AEidosPlayerController>(GetOwningPlayer()))
+	{
+		if (AEidosHUD* EidosHUD = Cast<AEidosHUD>(EidosPC->GetHUD()))
+		{
+			if (UHUDRootWidget* HUDRoot = EidosHUD->GetHUDRootWidget())
+			{
+				HUDRoot->ShowPageWorkPriorityEditor(EidosPC->GetSelectedPage());
+			}
+		}
+	}
+}
+
+void UPanel_Pages::HandleExpeditionRosterClicked()
+{
+	if (SelectedPageSummary.PageId == INDEX_NONE)
+	{
+		return;
+	}
+
+	UWS_Population* Population = GetWorld() ? GetWorld()->GetSubsystem<UWS_Population>() : nullptr;
+	FString Reason;
+	if (!Population || !Population->TogglePageExpeditionRoster(SelectedPageSummary.PageId, Reason))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Pages] Expedition roster update failed PageId=%d Reason=%s"), SelectedPageSummary.PageId, *Reason);
+		return;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[Pages] Expedition roster updated PageId=%d: %s"), SelectedPageSummary.PageId, *Reason);
+	RefreshDetailWidgets();
+}
+
 void UPanel_Pages::HandleRecruitCaptiveClicked()
 {
 	UE_LOG(LogTemp, Log, TEXT("[Pages] Recruit clicked PageId=%d IsCaptive=%d"), SelectedPageSummary.PageId, SelectedPageSummary.bIsCaptive);
@@ -712,19 +864,14 @@ void UPanel_Pages::HandleRecruitCaptiveClicked()
 	UWorld* World = GetWorld();
 	UWS_Population* Population = World ? World->GetSubsystem<UWS_Population>() : nullptr;
 	FString Reason;
-	if (!Population || !Population->RecruitCaptivePage(SelectedPageSummary.PageId, Reason))
+	if (!Population || !Population->ToggleCaptiveRecruitment(SelectedPageSummary.PageId, Reason))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Pages] Recruit captive failed PageId=%d Reason=%s"), SelectedPageSummary.PageId, *Reason);
+		UE_LOG(LogTemp, Warning, TEXT("[Pages] Recruit captive toggle failed PageId=%d Reason=%s"), SelectedPageSummary.PageId, *Reason);
 		return;
 	}
 
-	if (AEidosPlayerController* EidosPC = Cast<AEidosPlayerController>(GetOwningPlayer()))
-	{
-		EidosPC->SelectPageByEntityId(SelectedPageSummary.PageId);
-	}
-
-	InspectedCaptive.Reset();
-	RefreshFromWorld();
+	UE_LOG(LogTemp, Log, TEXT("[Pages] Recruitment state changed PageId=%d: %s"), SelectedPageSummary.PageId, *Reason);
+	RefreshSelectedPageVitals();
 }
 
 void UPanel_Pages::HandleSelectedPageStatsChanged()
@@ -746,8 +893,17 @@ void UPanel_Pages::RefreshSelectedPageVitals()
 		RefreshFromWorld();
 		return;
 	}
+	if (InspectedCaptive.IsValid() && !SelectedPage->IsCaptive())
+	{
+		// Recruitment completed while this entry was open. Rebuild once so the
+		// former captive becomes a normal controllable Page entry.
+		InspectedCaptive.Reset();
+		RefreshFromWorld();
+		return;
+	}
 
 	SelectedPageSummary.StatusText = BuildPageStatusText(SelectedPage);
+	SelectedPageSummary.bIsCaptive = SelectedPage->IsCaptive();
 	SelectedPageSummary.bIsInDungeon = SelectedPage->IsInDungeon();
 	SelectedPageSummary.bIsInTurnCombat = SelectedPage->IsInTurnCombat();
 	SelectedPageSummary.bHasActiveCombatTurn = SelectedPage->HasActiveCombatTurn();
@@ -783,6 +939,11 @@ void UPanel_Pages::RefreshSelectedPageVitals()
 
 	if (Text_Status)
 	{
+		if (SelectedPageSummary.bIsCaptive)
+		{
+			RefreshDetailWidgets();
+			return;
+		}
 		Text_Status->SetText(SelectedPageSummary.StatusText);
 	}
 

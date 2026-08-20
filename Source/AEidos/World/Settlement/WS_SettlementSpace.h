@@ -8,6 +8,7 @@
 #include "WS_SettlementSpace.generated.h"
 
 class ATerritoryChunkActor;
+class ANavMeshBoundsVolume;
 class UEidosSaveGame;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnTerritoryChanged);
@@ -82,6 +83,8 @@ private:
 
 	ATerritoryChunkActor* SpawnChunkActor(const FIntPoint& Coord);
 	FVector CoordToWorldLocation(const FIntPoint& Coord) const;
+	void UpdateRuntimeNavigationBounds();
+	ANavMeshBoundsVolume* FindOrSpawnNavigationBounds();
 
 	// 10m x 10m = 1000cm
 	UPROPERTY(EditDefaultsOnly, Category="Territory")
@@ -89,6 +92,13 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category="Territory")
 	float ChunkZ = 0.f;
+
+	// Extra navigable space around the outermost owned chunks.
+	UPROPERTY(EditDefaultsOnly, Category="Territory|Navigation", meta=(ClampMin="0.0"))
+	float NavigationPaddingCm = 600.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Territory|Navigation", meta=(ClampMin="100.0"))
+	float NavigationHeightCm = 1200.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Territory|Expansion")
 	FName ExpansionCostResourceId = TEXT("EP");
@@ -107,6 +117,11 @@ private:
 	// 스폰된 액터 캐시
 	UPROPERTY()
 	TMap<FIntPoint, TWeakObjectPtr<ATerritoryChunkActor>> SpawnedChunks;
+
+	UPROPERTY(Transient)
+	TWeakObjectPtr<ANavMeshBoundsVolume> RuntimeNavigationBounds;
+
+	FVector RuntimeNavigationBoundsBaseExtent = FVector::ZeroVector;
 
 	static const FName KEY_OwnedChunks;
 	bool IsValidExpansionTarget(const FIntPoint& Coord, FString& OutReason) const;

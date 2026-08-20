@@ -5,6 +5,7 @@
 
 #include "Core/Types/PortalTypes.h"
 #include "Data/Definitions/PortalDefinitionRow.h"
+#include "Data/Definitions/DungeonAttributeDefinitionRow.h"
 #include "Data/GIS_DataRegistry.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
@@ -12,7 +13,10 @@
 #include "Save/SaveGameSchema.h"
 #include "World/Dungeon/WS_DungeonRuntime.h"
 #include "World/Settlement/Portal/PortalActor.h"
+#include "World/Settlement/WS_RaidDirector.h"
+#include "World/Settlement/WS_Population.h"
 #include "World/Settlement/WS_SettlementSpace.h"
+#include "World/Settlement/WS_SettlementValue.h"
 
 namespace PortalDirectorKV
 {
@@ -24,10 +28,43 @@ namespace PortalDirectorKV
 
 namespace
 {
+	FString EncodeDungeonAttributes(const TArray<FDungeonAttributeWeight>& Attributes)
+	{
+		TArray<FString> Parts;
+		for (const FDungeonAttributeWeight& Attribute : Attributes)
+		{
+			if (!Attribute.AttributeId.IsNone() && Attribute.Weight > 0.f && Attribute.Strength > 0)
+			{
+				Parts.Add(FString::Printf(TEXT("%s=%.4f,%d"), *Attribute.AttributeId.ToString(), Attribute.Weight, Attribute.Strength));
+			}
+		}
+		return FString::Join(Parts, TEXT("|"));
+	}
+
+	void DecodeDungeonAttributes(const FString& Encoded, TArray<FDungeonAttributeWeight>& OutAttributes)
+	{
+		OutAttributes.Reset();
+		TArray<FString> Parts;
+		Encoded.ParseIntoArray(Parts, TEXT("|"), true);
+		for (const FString& Part : Parts)
+		{
+			FString Id, Values;
+			if (Part.Split(TEXT("="), &Id, &Values) && !Id.IsEmpty())
+			{
+				TArray<FString> ValueFields;
+				Values.ParseIntoArray(ValueFields, TEXT(","), false);
+				const float ParsedWeight = ValueFields.Num() > 0 ? FCString::Atof(*ValueFields[0]) : 0.f;
+				// V3 saves only contain composition weight. Keep them usable, but new portals
+				// persist the actual altar strength in the second field.
+				const int32 ParsedStrength = ValueFields.Num() > 1 ? FCString::Atoi(*ValueFields[1]) : FMath::Max(1, FMath::RoundToInt(ParsedWeight * 10.f));
+				if (ParsedWeight > 0.f && ParsedStrength > 0) OutAttributes.Add({ FName(*Id), ParsedWeight, ParsedStrength });
+			}
+		}
+	}
+
 	bool IsTerminalPortalStatus(EPortalStatus Status)
 	{
 		return Status == EPortalStatus::Cleared
-			|| Status == EPortalStatus::RaidTriggered
 			|| Status == EPortalStatus::Expired;
 	}
 
@@ -199,6 +236,19 @@ void UWS_PortalDirector::SimCommit_Implementation(USimCommandBuffer* CommandBuff
 		RemovePortalInternal(PortalId);
 		bDirty = true;
 	}
+
+	// RaidTriggered portals remain in the world while their spawned wave is active.
+	// StartRaid de-duplicates per portal, so this is safe across later fixed ticks.
+	if (UWS_RaidDirector* RaidDirector = GetWorld() ? GetWorld()->GetSubsystem<UWS_RaidDirector>() : nullptr)
+	{
+		for (const TPair<int32, FPortalState>& Pair : ActivePortals)
+		{
+			if (Pair.Value.Status == EPortalStatus::RaidTriggered)
+			{
+				RaidDirector->StartRaid(Pair.Value);
+			}
+		}
+	}
 }
 
 void UWS_PortalDirector::SimPost_Implementation(float FixedDeltaSeconds)
@@ -275,13 +325,10 @@ void UWS_PortalDirector::UpdatePortalTimer(float FixedDeltaSeconds)
 
 		SetPortalStatus(Portal, EPortalStatus::RaidTriggered);
 		UE_LOG(LogTemp, Warning,
-			TEXT("[Portal] RaidTriggered PortalId=%d Tier=%d"),
+			TEXT("[Portal] RaidTriggered PortalId=%d Difficulty=%.2f"),
 			Portal.PortalId,
-			Portal.Tier);
+			Portal.DungeonDifficulty);
 
-		// TODO:
-		// GetWorld()->GetSubsystem<UWS_RaidDirector>()->StartRaid(...);
-		PlannedRemovePortals.AddUnique(Portal.PortalId);
 	}
 }
 
@@ -302,44 +349,137 @@ FPortalState UWS_PortalDirector::MakePortalState(const FPortalDefinitionRow& Def
 	State.PortalId = NextPortalId++;
 	State.PortalDefId = Def.PortalId.IsNone() ? TEXT("DefaultPortal") : Def.PortalId;
 	State.Location = ChoosePortalSpawnLocation(Def);
-	State.Tier = Def.Tier;
+	State.DungeonSeed = FMath::Rand();
+	State.SettlementValueAtSpawn = GetWorld() ? GetWorld()->GetSubsystem<UWS_SettlementValue>()->GetCurrentSettlementValue() : 0.f;
+	State.DungeonDifficulty = GetWorld()
+		? GetWorld()->GetSubsystem<UWS_SettlementValue>()->RollDungeonDifficulty(State.DungeonSeed)
+		: 1.f;
+	RollDungeonAttributes(State);
 	State.SpawnTime = 0.f;
 	State.RaidTimer = Def.RaidDelaySeconds;
-	State.DungeonSeed = FMath::Rand();
 	State.Status = EPortalStatus::Spawning;
 	State.bDungeonEntered = false;
 	State.bCleared = false;
 	return State;
 }
 
+void UWS_PortalDirector::RollDungeonAttributes(FPortalState& InOutState) const
+{
+	UGIS_DataRegistry* Registry = GetRegistry();
+	if (!Registry || !Registry->EnsureReadySync()) return;
+
+	const float TargetDifficulty = FMath::Max(0.5f, InOutState.DungeonDifficulty);
+	TArray<const FDungeonAttributeDefinitionRow*> Candidates;
+	Registry->GetEligibleDungeonAttributes(TargetDifficulty, Candidates);
+	Candidates.RemoveAll([Registry, TargetDifficulty](const FDungeonAttributeDefinitionRow* Row)
+	{
+		return !Row || !Registry->GetItemDef(Row->CoreShardItemId)
+			|| Row->DifficultyWeight <= 0.f || Row->MinimumStrength <= 0
+			|| Row->DifficultyWeight * Row->MinimumStrength > TargetDifficulty;
+	});
+	if (Candidates.IsEmpty()) return;
+
+	FRandomStream Random(InOutState.DungeonSeed);
+	const int32 TargetCount = FMath::Min(Candidates.Num(), TargetDifficulty >= 5.f ? 3 : TargetDifficulty >= 2.f ? 2 : 1);
+	float RemainingDifficulty = TargetDifficulty;
+	for (int32 Index = 0; Index < TargetCount && !Candidates.IsEmpty(); ++Index)
+	{
+		float CandidateWeight = 0.f;
+		for (const FDungeonAttributeDefinitionRow* Candidate : Candidates)
+		{
+			if (Candidate->DifficultyWeight * Candidate->MinimumStrength <= RemainingDifficulty)
+			{
+				CandidateWeight += Candidate->SelectionWeight;
+			}
+		}
+		if (CandidateWeight <= 0.f) break;
+		float Roll = Random.FRandRange(0.f, CandidateWeight);
+		const FDungeonAttributeDefinitionRow* Selected = nullptr;
+		for (const FDungeonAttributeDefinitionRow* Candidate : Candidates)
+		{
+			if (Candidate->DifficultyWeight * Candidate->MinimumStrength > RemainingDifficulty) continue;
+			Roll -= Candidate->SelectionWeight;
+			if (Roll <= 0.f) { Selected = Candidate; break; }
+		}
+		if (!Selected) break;
+		const int32 MaxByDifficulty = FMath::FloorToInt(RemainingDifficulty / Selected->DifficultyWeight);
+		const int32 MaxStrength = FMath::Max(Selected->MinimumStrength, FMath::Min(Selected->MaximumStrength, MaxByDifficulty));
+		const int32 Strength = Random.RandRange(Selected->MinimumStrength, MaxStrength);
+		InOutState.DungeonAttributes.Add({ Selected->AttributeId, 0.f, Strength });
+		RemainingDifficulty -= Selected->DifficultyWeight * Strength;
+		Candidates.Remove(Selected);
+	}
+
+	float TotalStrength = 0.f;
+	float FinalDifficulty = 0.f;
+	for (const FDungeonAttributeWeight& Attribute : InOutState.DungeonAttributes)
+	{
+		TotalStrength += Attribute.Strength;
+		if (const FDungeonAttributeDefinitionRow* Definition = Registry->GetDungeonAttributeDef(Attribute.AttributeId))
+		{
+			FinalDifficulty += Definition->DifficultyWeight * Attribute.Strength;
+		}
+	}
+	for (FDungeonAttributeWeight& Attribute : InOutState.DungeonAttributes)
+	{
+		Attribute.Weight = TotalStrength > 0.f ? Attribute.Strength / TotalStrength : 0.f;
+	}
+	// Composition is authoritative: combat, raids, map generation, and the shard
+	// all use this same weighted sum rather than a separate difficulty estimate.
+	InOutState.DungeonDifficulty = FMath::Max(0.5f, FinalDifficulty);
+}
+
 FVector UWS_PortalDirector::ChoosePortalSpawnLocation(const FPortalDefinitionRow& Def) const
 {
-	FVector Origin = FVector::ZeroVector;
-
 	if (UWS_SettlementSpace* SettlementSpace = GetWorld() ? GetWorld()->GetSubsystem<UWS_SettlementSpace>() : nullptr)
 	{
 		const TArray<FIntPoint> OwnedChunks = SettlementSpace->GetOwnedChunks();
-		if (OwnedChunks.Num() > 0)
+		if (!OwnedChunks.IsEmpty())
 		{
-			FVector Accumulated = FVector::ZeroVector;
+			static const FIntPoint Directions[] =
+			{
+				FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1)
+			};
+
+			// A portal must always stand on purchased ground. Prefer outer chunks so
+			// it still reads as an incoming threat instead of appearing at the core.
+			TArray<FIntPoint> BoundaryChunks;
 			for (const FIntPoint& Coord : OwnedChunks)
 			{
-				Accumulated += SettlementSpace->GetChunkWorldLocation(Coord);
+				for (const FIntPoint& Direction : Directions)
+				{
+					if (!SettlementSpace->OwnChunk(Coord + Direction))
+					{
+						BoundaryChunks.Add(Coord);
+						break;
+					}
+				}
 			}
 
-			Origin = Accumulated / static_cast<float>(OwnedChunks.Num());
+			const TArray<FIntPoint>& Candidates = BoundaryChunks.IsEmpty() ? OwnedChunks : BoundaryChunks;
+			const FIntPoint ChosenChunk = Candidates[FMath::RandRange(0, Candidates.Num() - 1)];
+			TArray<FIntPoint> OpenDirections;
+			for (const FIntPoint& Direction : Directions)
+			{
+				if (!SettlementSpace->OwnChunk(ChosenChunk + Direction))
+				{
+					OpenDirections.Add(Direction);
+				}
+			}
+
+			const FIntPoint EdgeDirection = OpenDirections.IsEmpty()
+				? Directions[FMath::RandRange(0, UE_ARRAY_COUNT(Directions) - 1)]
+				: OpenDirections[FMath::RandRange(0, OpenDirections.Num() - 1)];
+			const FVector Direction(static_cast<float>(EdgeDirection.X), static_cast<float>(EdgeDirection.Y), 0.f);
+			const FVector Tangent(-Direction.Y, Direction.X, 0.f);
+			const float ChunkSize = SettlementSpace->GetChunkSizeCm();
+			const FVector Offset = Direction * (ChunkSize * 0.28f) + Tangent * FMath::FRandRange(-ChunkSize * 0.16f, ChunkSize * 0.16f);
+			return SettlementSpace->GetChunkWorldLocation(ChosenChunk) + Offset;
 		}
 	}
 
-	const float Dist = FMath::FRandRange(Def.SpawnMinDistance, Def.SpawnMaxDistance);
-	const float Angle = FMath::FRandRange(0.f, 2.f * PI);
-
-	const FVector Offset(
-		FMath::Cos(Angle) * Dist,
-		FMath::Sin(Angle) * Dist,
-		0.f);
-
-	return Origin + Offset;
+	// This only applies before settlement space has initialized.
+	return FVector::ZeroVector;
 }
 
 bool UWS_PortalDirector::SetPortalStatus(FPortalState& Portal, EPortalStatus NewStatus)
@@ -424,7 +564,7 @@ void UWS_PortalDirector::SpawnPortalActorForState(const FPortalState& State)
 
 	if (APortalActor* PortalActor = Cast<APortalActor>(Spawned))
 	{
-		PortalActor->InitializePortal(State.PortalId, State.Tier);
+		PortalActor->InitializePortal(State.PortalId, State.DungeonDifficulty);
 	}
 }
 
@@ -510,7 +650,18 @@ bool UWS_PortalDirector::RequestEnterPortal(int32 PortalId, APageCharacter* Ente
 		return false;
 	}
 
-	if (!DungeonRuntime->EnterDungeonForPortal(PortalId, EnteringPage))
+	TArray<APageCharacter*> ExpeditionPages;
+	if (UWS_Population* Population = GetWorld()->GetSubsystem<UWS_Population>();
+		Population && Population->IsPageInExpeditionRoster(EnteringPage->GetPageEntityId()))
+	{
+		Population->GetReadyExpeditionPages(ExpeditionPages);
+	}
+	if (!ExpeditionPages.Contains(EnteringPage))
+	{
+		ExpeditionPages.Add(EnteringPage);
+	}
+
+	if (!DungeonRuntime->EnterDungeonForPortal(PortalId, ExpeditionPages))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Portal] RequestEnterPortal failed: dungeon runtime rejected request"));
 		return false;
@@ -525,9 +676,10 @@ bool UWS_PortalDirector::RequestEnterPortal(int32 PortalId, APageCharacter* Ente
 	}
 
 	UE_LOG(LogTemp, Log,
-		TEXT("[Portal] RequestEnterPortal PortalId=%d PageId=%d"),
+		TEXT("[Portal] RequestEnterPortal PortalId=%d PageId=%d ExpeditionPages=%d"),
 		PortalId,
-		EnteringPage->GetPageEntityId());
+		EnteringPage->GetPageEntityId(),
+		ExpeditionPages.Num());
 
 	// TODO:
 	// Actual dungeon transition/session creation hooks in here later.
@@ -551,6 +703,33 @@ void UWS_PortalDirector::OnDungeonCleared(int32 PortalId)
 	// Remove both the visible portal and its active state immediately on clear.
 	RemovePortalInternal(PortalId);
 	bDirty = true;
+}
+
+void UWS_PortalDirector::ResolveRaid(int32 PortalId)
+{
+	FPortalState* State = ActivePortals.Find(PortalId);
+	if (!State || State->Status != EPortalStatus::RaidTriggered)
+	{
+		return;
+	}
+
+	SetPortalStatus(*State, EPortalStatus::Expired);
+	RemovePortalInternal(PortalId);
+	bDirty = true;
+}
+
+void UWS_PortalDirector::FailRaid(int32 PortalId)
+{
+	FPortalState* State = ActivePortals.Find(PortalId);
+	if (!State || State->Status != EPortalStatus::RaidTriggered)
+	{
+		return;
+	}
+
+	SetPortalStatus(*State, EPortalStatus::Expired);
+	RemovePortalInternal(PortalId);
+	bDirty = true;
+	UE_LOG(LogTemp, Warning, TEXT("[Portal] Raid failed because the settlement core was destroyed. PortalId=%d"), PortalId);
 }
 
 void UWS_PortalDirector::SpawnPortalNow()
@@ -600,19 +779,21 @@ FString UWS_PortalDirector::EncodePortalStates(const TMap<int32, FPortalState>& 
 		const FPortalState& S = Pair.Value;
 
 		Items.Add(FString::Printf(
-			TEXT("%d,%s,%.3f,%.3f,%.3f,%d,%.3f,%.3f,%d,%d,%d,%d"),
+			TEXT("V3,%d,%s,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%s"),
 			S.PortalId,
 			*S.PortalDefId.ToString(),
 			S.Location.X,
 			S.Location.Y,
 			S.Location.Z,
-			S.Tier,
+			S.SettlementValueAtSpawn,
+			S.DungeonDifficulty,
 			S.SpawnTime,
 			S.RaidTimer,
 			S.DungeonSeed,
 			static_cast<int32>(S.Status),
 			S.bDungeonEntered ? 1 : 0,
-			S.bCleared ? 1 : 0));
+			S.bCleared ? 1 : 0,
+			*EncodeDungeonAttributes(S.DungeonAttributes)));
 	}
 
 	return FString::Join(Items, TEXT(";"));
@@ -635,34 +816,31 @@ void UWS_PortalDirector::DecodePortalStates(const FString& Encoded, TArray<FPort
 		TArray<FString> Fields;
 		Entry.ParseIntoArray(Fields, TEXT(","), false);
 
-		const bool bHasPortalDefId = Fields.Num() >= 12;
-		if ((!bHasPortalDefId && Fields.Num() < 11) || (bHasPortalDefId && Fields.Num() < 12))
+		if (Fields.Num() < 14 || (Fields[0] != TEXT("V2") && Fields[0] != TEXT("V3")))
 		{
+			// Pre-difficulty portal snapshots are deliberately not migrated: spawn
+			// fresh portals so every active portal has a value-based difficulty.
 			continue;
 		}
 
 		FPortalState S;
-		S.PortalId = FCString::Atoi(*Fields[0]);
-		int32 FieldOffset = 0;
-		if (bHasPortalDefId)
+		S.PortalId = FCString::Atoi(*Fields[1]);
+		S.PortalDefId = FName(*Fields[2]);
+		S.Location.X = FCString::Atof(*Fields[3]);
+		S.Location.Y = FCString::Atof(*Fields[4]);
+		S.Location.Z = FCString::Atof(*Fields[5]);
+		S.SettlementValueAtSpawn = FCString::Atof(*Fields[6]);
+		S.DungeonDifficulty = FMath::Max(0.5f, FCString::Atof(*Fields[7]));
+		S.SpawnTime = FCString::Atof(*Fields[8]);
+		S.RaidTimer = FCString::Atof(*Fields[9]);
+		S.DungeonSeed = FCString::Atoi(*Fields[10]);
+		S.Status = static_cast<EPortalStatus>(FCString::Atoi(*Fields[11]));
+		S.bDungeonEntered = FCString::Atoi(*Fields[12]) != 0;
+		S.bCleared = FCString::Atoi(*Fields[13]) != 0;
+		if (Fields[0] == TEXT("V3") && Fields.Num() >= 15)
 		{
-			S.PortalDefId = FName(*Fields[1]);
-			FieldOffset = 1;
+			DecodeDungeonAttributes(Fields[14], S.DungeonAttributes);
 		}
-		else
-		{
-			S.PortalDefId = TEXT("DefaultPortal");
-		}
-		S.Location.X = FCString::Atof(*Fields[1 + FieldOffset]);
-		S.Location.Y = FCString::Atof(*Fields[2 + FieldOffset]);
-		S.Location.Z = FCString::Atof(*Fields[3 + FieldOffset]);
-		S.Tier = FCString::Atoi(*Fields[4 + FieldOffset]);
-		S.SpawnTime = FCString::Atof(*Fields[5 + FieldOffset]);
-		S.RaidTimer = FCString::Atof(*Fields[6 + FieldOffset]);
-		S.DungeonSeed = FCString::Atoi(*Fields[7 + FieldOffset]);
-		S.Status = static_cast<EPortalStatus>(FCString::Atoi(*Fields[8 + FieldOffset]));
-		S.bDungeonEntered = FCString::Atoi(*Fields[9 + FieldOffset]) != 0;
-		S.bCleared = FCString::Atoi(*Fields[10 + FieldOffset]) != 0;
 
 		switch (S.Status)
 		{

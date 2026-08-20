@@ -19,6 +19,8 @@ struct FItemDefinitionRow;
 struct FBlockDefinitionRow;
 struct FBlockInteractionDefinitionRow;
 struct FResearchDefinitionRow;
+struct FDungeonAttributeDefinitionRow;
+struct FScenarioDefinitionRow;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogDataRegistry, Log, All);
 
@@ -75,6 +77,16 @@ class AEIDOS_API UGIS_DataRegistry : public UGameInstanceSubsystem
 	UDataTable* GetPortalTable() const;
 	const FPortalDefinitionRow* GetPortalDef(FName PortalDefId) const;
 	TArray<FName> GetAllPortalDefIds() const;
+
+	UDataTable* GetDungeonAttributeTable() const;
+	const FDungeonAttributeDefinitionRow* GetDungeonAttributeDef(FName AttributeId) const;
+	void GetEligibleDungeonAttributes(float Difficulty, TArray<const FDungeonAttributeDefinitionRow*>& OutAttributes) const;
+
+	/** Unified portal rows also provide compatible dungeon settlement layouts. */
+	void GetEligiblePortalDungeonPresets(float Difficulty, TArray<const FPortalDefinitionRow*>& OutPresets) const;
+
+	UDataTable* GetScenarioTable() const;
+	const FScenarioDefinitionRow* GetScenarioDef(FName ScenarioId) const;
 
 	private:
 	TSoftObjectPtr<UEidosDataRegistryConfig> ConfigRef;

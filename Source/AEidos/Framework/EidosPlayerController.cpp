@@ -37,6 +37,8 @@
 #include "Data/Definitions/SkillDefinitionRow.h"
 #include "Entities/Page/Components/StatsComponent.h"
 #include "Iris/ReplicationState/PropertyNetSerializerInfoRegistry.h"
+#include "Save/GIS_SaveLoad.h"
+#include "Engine/Engine.h"
 
 AEidosPlayerController::AEidosPlayerController()
 {
@@ -150,6 +152,7 @@ void AEidosPlayerController::SetupInputComponent()
 	InputComponent->BindKey(EKeys::LeftBracket, IE_Pressed, this, &AEidosPlayerController::OnSelectPreviousPage);
 	InputComponent->BindKey(EKeys::RightBracket, IE_Pressed, this, &AEidosPlayerController::OnSelectNextPage);
 	InputComponent->BindKey(EKeys::SpaceBar, IE_Pressed, this, &AEidosPlayerController::OnEndTurnPressed);
+	InputComponent->BindKey(EKeys::F6, IE_Pressed, this, &AEidosPlayerController::OnQuickSavePressed);
 	InputComponent->BindKey(EKeys::One, IE_Pressed, this, &AEidosPlayerController::OnCombatActionSlot1);
 	InputComponent->BindKey(EKeys::Two, IE_Pressed, this, &AEidosPlayerController::OnCombatActionSlot2);
 	InputComponent->BindKey(EKeys::Three, IE_Pressed, this, &AEidosPlayerController::OnCombatActionSlot3);
@@ -209,7 +212,7 @@ void AEidosPlayerController::EnsureValidSelectedPage()
 		}
 
 		UStatsComponent* Stats = Candidate->GetStats();
-		if (!Stats || Stats->IsDead())
+		if (!Stats || Stats->IsDead() || Stats->IsDowned() || Stats->IsRecovering())
 		{
 			continue;
 		}
@@ -440,6 +443,47 @@ void AEidosPlayerController::OnPrimaryClick(const FInputActionValue& Value)
 		{
 			LastWorldInteractionTime = GetWorld()->GetTimeSeconds();
 		}
+	}
+}
+
+void AEidosPlayerController::OnQuickSavePressed()
+{
+	UWorld* World = GetWorld();
+	UGameInstance* GameInstance = GetGameInstance();
+	UGIS_SaveLoad* SaveLoad = GameInstance ? GameInstance->GetSubsystem<UGIS_SaveLoad>() : nullptr;
+	if (!World || !SaveLoad)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Save] Quick save failed: world or save subsystem is unavailable."));
+		return;
+	}
+
+	FString FailureReason;
+	if (!SaveLoad->CanSaveWorld(*World, FailureReason))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Save] Quick save unavailable: %s"), *FailureReason);
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(INDEX_NONE, 4.f, FColor::Yellow,
+				FString::Printf(TEXT("Save unavailable: %s"), *FailureReason));
+		}
+		return;
+	}
+
+	constexpr const TCHAR* QuickSaveSlotName = TEXT("Slot0");
+	const bool bSaved = SaveLoad->SaveToSlot(*World, QuickSaveSlotName, 0);
+	if (bSaved)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[Save] Quick save completed (Slot=%s)"), QuickSaveSlotName);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Save] Quick save failed (Slot=%s)"), QuickSaveSlotName);
+	}
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(INDEX_NONE, 3.f, bSaved ? FColor::Green : FColor::Red,
+			bSaved ? TEXT("Game saved.") : TEXT("Game save failed."));
 	}
 }
 
@@ -1356,7 +1400,15 @@ AActor* AEidosPlayerController::FindFocusedInteractActor() const
 		}
 
 		float InteractionPriority = -1.f;
-		if (Candidate->IsA<APortalActor>())
+		if (const APageCharacter* CandidatePage = Cast<APageCharacter>(Candidate); CandidatePage
+			&& CandidatePage->IsFriendly()
+			&& CandidatePage->GetStats()
+			&& CandidatePage->GetStats()->IsDowned()
+			&& CandidatePage->IsInDungeon() == SelectedPage->IsInDungeon())
+		{
+			InteractionPriority = 1100.f;
+		}
+		else if (Candidate->IsA<APortalActor>())
 		{
 			InteractionPriority = 1000.f;
 		}
@@ -1509,8 +1561,14 @@ bool AEidosPlayerController::ExecuteDefaultWorldInteraction(AActor* TargetActor)
 	TArray<FWorldInteractionOption> Options;
 	FWorldInteractionOption PreparedOption;
 	APageCharacter* SelectedPage = GetSelectedPage();
-	return SelectedPage && ResolvePreparedWorldInteraction(TargetActor, Options, PreparedOption)
-		&& IWorldInteractionInterface::Execute_ExecuteWorldInteraction(TargetActor, SelectedPage, PreparedOption.InteractionId);
+	if (!SelectedPage || (SelectedPage->GetStats() && (SelectedPage->GetStats()->IsDead() || SelectedPage->GetStats()->IsDowned() || SelectedPage->GetStats()->IsRecovering()))
+		|| !ResolvePreparedWorldInteraction(TargetActor, Options, PreparedOption))
+	{
+		return false;
+	}
+
+	SelectedPage->BeginManualWorkOverride();
+	return IWorldInteractionInterface::Execute_ExecuteWorldInteraction(TargetActor, SelectedPage, PreparedOption.InteractionId);
 }
 
 bool AEidosPlayerController::ResolvePreparedWorldInteraction(AActor* TargetActor,
@@ -1519,7 +1577,7 @@ bool AEidosPlayerController::ResolvePreparedWorldInteraction(AActor* TargetActor
 	OutOptions.Reset();
 	OutPreparedOption = FWorldInteractionOption{};
 	APageCharacter* SelectedPage = GetSelectedPage();
-	if (!SelectedPage || !IsValid(TargetActor)
+	if (!SelectedPage || (SelectedPage->GetStats() && (SelectedPage->GetStats()->IsDead() || SelectedPage->GetStats()->IsDowned() || SelectedPage->GetStats()->IsRecovering())) || !IsValid(TargetActor)
 		|| !TargetActor->GetClass()->ImplementsInterface(UWorldInteractionInterface::StaticClass()))
 	{
 		return false;
@@ -1738,8 +1796,13 @@ bool AEidosPlayerController::ExecuteContextWorldInteraction(FName InteractionId)
 	AActor* TargetActor = ContextInteractionTarget.Get();
 	const bool bIsKnownOption = ContextInteractionOptions.ContainsByPredicate(
 		[InteractionId](const FWorldInteractionOption& Option) { return Option.InteractionId == InteractionId; });
-	const bool bSuccess = SelectedPage && TargetActor && bIsKnownOption
-		&& TargetActor->GetClass()->ImplementsInterface(UWorldInteractionInterface::StaticClass())
+	const bool bCanExecute = SelectedPage && (!SelectedPage->GetStats() || (!SelectedPage->GetStats()->IsDead() && !SelectedPage->GetStats()->IsDowned() && !SelectedPage->GetStats()->IsRecovering())) && TargetActor && bIsKnownOption
+		&& TargetActor->GetClass()->ImplementsInterface(UWorldInteractionInterface::StaticClass());
+	if (bCanExecute)
+	{
+		SelectedPage->BeginManualWorkOverride();
+	}
+	const bool bSuccess = bCanExecute
 		&& IWorldInteractionInterface::Execute_ExecuteWorldInteraction(TargetActor, SelectedPage, InteractionId);
 	CloseWorldInteractionRadial();
 	return bSuccess;
@@ -1751,7 +1814,7 @@ bool AEidosPlayerController::SelectContextWorldInteraction(FName InteractionId)
 	AActor* TargetActor = ContextInteractionTarget.Get();
 	const bool bIsKnownOption = ContextInteractionOptions.ContainsByPredicate(
 		[InteractionId](const FWorldInteractionOption& Option) { return Option.InteractionId == InteractionId; });
-	if (!SelectedPage || !TargetActor || !bIsKnownOption)
+	if (!SelectedPage || (SelectedPage->GetStats() && (SelectedPage->GetStats()->IsDead() || SelectedPage->GetStats()->IsDowned() || SelectedPage->GetStats()->IsRecovering())) || !TargetActor || !bIsKnownOption)
 	{
 		return false;
 	}
@@ -1814,6 +1877,18 @@ bool AEidosPlayerController::TryInteractWithActor(AActor* TargetActor)
 	{
 		DungeonCore->Interact(this);
 		return true;
+	}
+
+	if (APageCharacter* DownedPage = Cast<APageCharacter>(TargetActor))
+	{
+		FString Reason;
+		if (UWS_Population* Population = GetWorld() ? GetWorld()->GetSubsystem<UWS_Population>() : nullptr;
+			Population && Population->RescueDownedPage(GetSelectedPage(), DownedPage, Reason))
+		{
+			return true;
+		}
+		UE_LOG(LogTemp, Verbose, TEXT("[PC] Rescue failed: %s"), *Reason);
+		return false;
 	}
 
 	if (ADungeonReturnPortalActor* ReturnPortal = Cast<ADungeonReturnPortalActor>(TargetActor))

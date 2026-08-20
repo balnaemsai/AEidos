@@ -5,15 +5,6 @@
 #include "Core/Types/WorkTypes.h"
 #include "WorkDefinitionRow.generated.h"
 
-UENUM(BlueprintType)
-enum class EWorkCategory : uint8
-{
-	Craft,
-	Gather,
-	Construction,
-	Research
-};
-
 USTRUCT(BlueprintType)
 struct FWorkDefinitionRow : public FTableRowBase
 {
@@ -36,6 +27,10 @@ struct FWorkDefinitionRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	int32 MaxWorkers = 1;
+
+	/** True면 요청 시 대상 Page를 지정해야 하며, 해당 Page만 이 Job을 수행한다. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	bool bPageSpecificJob = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FName SiteTag;

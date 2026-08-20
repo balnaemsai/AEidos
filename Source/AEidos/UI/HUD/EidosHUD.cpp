@@ -6,6 +6,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
+#include "Framework/MenuGameMode.h"
 
 #include "UI/GIS_UIRouter.h"
 
@@ -58,6 +59,10 @@ void AEidosHUD::EnsureHUDRoot()
 
 	UWorld* World = GetWorld();
 	if (!World)
+	{
+		return;
+	}
+	if (const AGameModeBase* GameMode = World->GetAuthGameMode(); GameMode && GameMode->IsA(AMenuGameMode::StaticClass()))
 	{
 		return;
 	}

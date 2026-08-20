@@ -1,7 +1,0 @@
-Name,BuildingId,DisplayName,Category,BuildingActorClass,ConstructionSiteActorClass,BuildWorkId,Footprint,ZOffset,ThumbnailIcon,Description,RequiredResearchIds,AutoWorks,StorageWeightCapacity,StorageVolumeCapacity,PageCapacity
-Orchard,Orchard,Orchard,Production,/Game/Blueprints/BP_TestBuilding.BP_TestBuilding_C,/Game/Blueprints/BP_TestConstructionSite.BP_TestConstructionSite_C,Construct_Orchard,"(X=200,Y=200)",0,,과일 농원,(),(),0,0,0
-Workbench,Workbench,Workbench,Production,/Game/Blueprints/BP_TestBuilding.BP_TestBuilding_C,/Game/Blueprints/BP_TestConstructionSite.BP_TestConstructionSite_C,Construct_Workbench,"(X=100,Y=200)",0,,작업대,(),(),0,0,0
-Quarry,Quarry,Quarry,Production,/Game/Blueprints/BP_TestBuilding.BP_TestBuilding_C,/Game/Blueprints/BP_TestConstructionSite.BP_TestConstructionSite_C,Construct_Quarry,"(X=500,Y=500)",0,,채석장,(),(),0,0,0
-Inn,Inn,Inn,Structure,/Game/Blueprints/BP_TestBuilding.BP_TestBuilding_C,/Game/Blueprints/BP_TestConstructionSite.BP_TestConstructionSite_C,Construct_Inn,"(X=500,Y=500)",0,,여관,(),(),0,0,4
-EP_Altar,EP_Altar,EP_Altar,Structure,/Game/Blueprints/BP_TestBuilding.BP_TestBuilding_C,/Game/Blueprints/BP_TestConstructionSite.BP_TestConstructionSite_C,Construct_EP_Altar,"(X=100,Y=100)",0,,존재의 제단,(),(),0,0,0
-Small_Storage,Small_Storage,Small_Storage,Structure,/Game/Blueprints/BP_TestBuilding.BP_TestBuilding_C,/Game/Blueprints/BP_TestConstructionSite.BP_TestConstructionSite_C,Construct_Small_Storage,"(X=100,Y=100)",0,,소형 창고,(),(),500,1000,0

@@ -9,6 +9,7 @@
 #include "Entities/Items/EquipmentComponent.h"
 #include "Framework/EidosPlayerController.h"
 #include "Player/Camera/CameraModeComponent.h"
+#include "World/Settlement/WS_Work.h"
 
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -144,6 +145,11 @@ void APageCharacter::BeginPlay()
 void APageCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	if (Stats && Stats->IsDead())
+	{
+		Destroy();
+		return;
+	}
 
 	const FVector CurrentLocation = GetActorLocation();
 	if (bInTurnCombat && bHasActiveCombatTurn && IsFriendly())
@@ -179,7 +185,7 @@ void APageCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 
 void APageCharacter::HandleMove(const FInputActionValue& Value)
 {
-	if (bInTurnCombat && !bHasActiveCombatTurn)
+	if ((Stats && (Stats->IsDowned() || Stats->IsRecovering())) || (bInTurnCombat && !bHasActiveCombatTurn))
 	{
 		return;
 	}
@@ -188,6 +194,8 @@ void APageCharacter::HandleMove(const FInputActionValue& Value)
 
 	if (MoveInput.IsNearlyZero())
 		return;
+
+	BeginManualWorkOverride();
 
 	AEidosPlayerController* PC = Cast<AEidosPlayerController>(GetController());
 
@@ -213,6 +221,77 @@ void APageCharacter::HandleMove(const FInputActionValue& Value)
 	const FVector Right   = FRotationMatrix(ControlRot).GetUnitAxis(EAxis::Y);
 	AddMovementInput(Forward, MoveInput.Y);
 	AddMovementInput(Right,   MoveInput.X);
+}
+
+void APageCharacter::BeginManualWorkOverride()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	ManualWorkOverrideUntilTime = World->GetTimeSeconds() + ManualWorkOverrideGraceSeconds;
+
+	if (!CurrentJobState.bIsActive || PageEntityId == INDEX_NONE)
+	{
+		return;
+	}
+
+	if (UWS_Work* WorkSystem = World->GetSubsystem<UWS_Work>())
+	{
+		WorkSystem->InterruptPageWork(PageEntityId);
+	}
+	else
+	{
+		// Keep player input authoritative even while a level is shutting down.
+		CurrentJobState = FPageJobState{};
+	}
+}
+
+bool APageCharacter::IsManualWorkOverrideActive() const
+{
+	const UWorld* World = GetWorld();
+	return World && World->GetTimeSeconds() < ManualWorkOverrideUntilTime;
+}
+
+int32 APageCharacter::GetWorkPriority(EWorkCategory WorkCategory) const
+{
+	if (const FPageWorkPriority* Found = WorkPriorities.FindByPredicate([WorkCategory](const FPageWorkPriority& Entry)
+	{
+		return Entry.WorkCategory == WorkCategory;
+	}))
+	{
+		return FMath::Clamp(Found->Priority, 0, 5);
+	}
+
+	return 3;
+}
+
+void APageCharacter::SetWorkPriority(EWorkCategory WorkCategory, int32 NewPriority)
+{
+	const int32 ClampedPriority = FMath::Clamp(NewPriority, 0, 5);
+	if (FPageWorkPriority* Found = WorkPriorities.FindByPredicate([WorkCategory](const FPageWorkPriority& Entry)
+	{
+		return Entry.WorkCategory == WorkCategory;
+	}))
+	{
+		Found->Priority = ClampedPriority;
+		return;
+	}
+
+	FPageWorkPriority& NewEntry = WorkPriorities.AddDefaulted_GetRef();
+	NewEntry.WorkCategory = WorkCategory;
+	NewEntry.Priority = ClampedPriority;
+}
+
+void APageCharacter::SetWorkPriorities(const TArray<FPageWorkPriority>& InPriorities)
+{
+	WorkPriorities.Reset();
+	for (const FPageWorkPriority& Entry : InPriorities)
+	{
+		SetWorkPriority(Entry.WorkCategory, Entry.Priority);
+	}
 }
 
 void APageCharacter::AddWorkSkillXP(FName SkillId, float WorkRatePerSecond, float FixedDeltaSeconds, float XPFactor)
@@ -485,11 +564,87 @@ void APageCharacter::SetSettlementOverCapacity(bool bNewOverCapacity)
 	UpdateOverloadMovementSpeed();
 }
 
+void APageCharacter::SetSettlementFoodShortage(bool bNewFoodShortage)
+{
+	if (bSettlementFoodShortage == bNewFoodShortage)
+	{
+		return;
+	}
+
+	bSettlementFoodShortage = bNewFoodShortage;
+	if (!bSettlementFoodShortage)
+	{
+		SettlementStarvationSeverity = 0.f;
+	}
+	UpdateOverloadMovementSpeed();
+}
+
+void APageCharacter::AdvanceSettlementStarvation(float DeltaSeconds)
+{
+	if (!IsFriendly() || !bSettlementFoodShortage || DeltaSeconds <= 0.f)
+	{
+		return;
+	}
+
+	const float PreviousSeverity = SettlementStarvationSeverity;
+	SettlementStarvationSeverity = FMath::Clamp(
+		SettlementStarvationSeverity + DeltaSeconds / FMath::Max(1.f, StarvationSecondsToMaximum),
+		0.f,
+		1.f);
+
+	if (UStatsComponent* PageStats = GetStats())
+	{
+		const float MaximumDrain = FMath::Max(0.f, PageStats->GetMaxHealth() * (1.f - StarvationMinimumHealthFraction));
+		PageStats->ApplyNonLethalDamage(MaximumDrain * DeltaSeconds / FMath::Max(1.f, StarvationSecondsToMaximum), StarvationMinimumHealthFraction);
+	}
+
+	if (!FMath::IsNearlyEqual(PreviousSeverity, SettlementStarvationSeverity))
+	{
+		UpdateOverloadMovementSpeed();
+	}
+}
+
+float APageCharacter::GetSettlementMovementMultiplier() const
+{
+	if (!IsFriendly())
+	{
+		return 1.f;
+	}
+
+	return bSettlementFoodShortage
+		? FMath::Lerp(1.f, StarvationMinimumMovementMultiplier, SettlementStarvationSeverity)
+		: 1.f;
+}
+
+float APageCharacter::GetSettlementWorkRateMultiplier() const
+{
+	if (!IsFriendly())
+	{
+		return 1.f;
+	}
+
+	return bSettlementFoodShortage
+		? FMath::Lerp(1.f, StarvationMinimumWorkRateMultiplier, SettlementStarvationSeverity)
+		: 1.f;
+}
+
+float APageCharacter::GetSettlementCombatDamageMultiplier() const
+{
+	if (!IsFriendly())
+	{
+		return 1.f;
+	}
+
+	return bSettlementFoodShortage
+		? FMath::Lerp(1.f, StarvationMinimumCombatDamageMultiplier, SettlementStarvationSeverity)
+		: 1.f;
+}
+
 void APageCharacter::UpdateOverloadMovementSpeed()
 {
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 	{
-		const float SettlementMultiplier = bSettlementOverCapacity ? OverCapacityMovementMultiplier : 1.f;
+		const float SettlementMultiplier = (bSettlementOverCapacity ? OverCapacityMovementMultiplier : 1.f) * GetSettlementMovementMultiplier();
 		MoveComp->MaxWalkSpeed = BaseWalkSpeed * GetOverloadMovementMultiplier() * SettlementMultiplier;
 	}
 }

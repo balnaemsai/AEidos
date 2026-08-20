@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
+#include "Core/Types/WorkTypes.h"
 #include "UObject/Interface.h"
 #include "EidosAccessInterface.generated.h"
 
@@ -45,6 +46,14 @@ public:
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable)
 	bool IsPageAvailable(int32 PageId) const;
 
+	/** Automatic assignment preference for a Page and work category. Zero opts the Page out. */
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable)
+	int32 GetPageWorkPriority(int32 PageId, EWorkCategory WorkCategory) const;
+
+	/** Returns whether the Page is still actively performing this exact work instance. */
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable)
+	bool IsPageAssignedToWork(int32 PageId, int32 InstanceId) const;
+
 	// 작업장으로 이동 처리(간단히는 “목표 위치 설정”)
 	//UFUNCTION(BlueprintNativeEvent, BlueprintCallable)
 	//bool EnsureMoveTo(int32 PageId, const FVector& WorldLocation);
@@ -55,7 +64,11 @@ public:
 
 	// 작업 속도 계산에 필요한 값들(스탯/스킬/특성/상태 반영)
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable)
-	float ComputeWorkRateMultiplier(int32 PageId, FName WorkId) const;
+	float ComputeWorkRateMultiplier(int32 PageId, FName SkillId) const;
+
+	/** Awards the active work definition's continuous XP to one participating Page. */
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable)
+	void AwardWorkSkillXP(int32 PageId, FName SkillId, float XPPerSecond, float FixedDeltaSeconds, float XPFactor);
 
 	// 완료 보상(스킬 경험치 등)
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable)
@@ -65,7 +78,7 @@ public:
 	AActor* GetPageActor(int32 PageId);
 
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent)
-	void AssignPageToWork(int32 PageId, int32 InstanceId, FName WorkId, FVector WorkLocation, int32 Priority);
+	void AssignPageToWork(int32 PageId, int32 InstanceId, FName WorkId, FVector WorkLocation, int32 Priority, bool bTeleportToWorkSite);
 
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent)
 	void ClearPageWorkAssignment(int32 PageId, int32 InstanceId);

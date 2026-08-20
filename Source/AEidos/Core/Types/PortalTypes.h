@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
+#include "Core/Types/DungeonTypes.h"
 #include "PortalTypes.generated.h"
 
 UENUM(BlueprintType)
@@ -34,8 +35,13 @@ struct FPortalState
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FVector Location = FVector::ZeroVector;
 
+	/** Settlement value captured at spawn. It does not change for this portal. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	int32 Tier = 1;
+	float SettlementValueAtSpawn = 0.f;
+
+	/** Bounded normal sample centered on SettlementValueAtSpawn. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float DungeonDifficulty = 1.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float SpawnTime = 0.f;
@@ -46,6 +52,10 @@ struct FPortalState
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	int32 DungeonSeed = 0;
+
+	/** Rolled once at spawn and persisted so a portal never changes theme after save/load. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TArray<FDungeonAttributeWeight> DungeonAttributes;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	EPortalStatus Status = EPortalStatus::Spawning;

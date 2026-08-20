@@ -35,6 +35,9 @@ struct FPlannedPageAssignment
 	FVector WorkLocation = FVector::ZeroVector;
 
 	UPROPERTY()
+	bool bTeleportToWorkSite = false;
+
+	UPROPERTY()
 	int32 Priority = 0;
 };
 
@@ -60,6 +63,10 @@ public:
 	UFUNCTION(BlueprintCallable)
 	int32 QueueWorkById(FName WorkId, int32 Quantity = 1, int32 Priority = 0);
 
+	/** Queues a Page-specific DT_Work row. Shared work must continue to use QueueWorkById. */
+	UFUNCTION(BlueprintCallable)
+	int32 QueueWorkByIdForPage(FName WorkId, int32 TargetPageId, int32 Quantity = 1, int32 Priority = 0);
+
 	UFUNCTION(BlueprintPure)
 	TArray<FWorkOrderView> GetCraftableWorkOrders() const;
 	bool GetWorkOrderView(FName WorkId, FWorkOrderView& OutView) const;
@@ -67,6 +74,14 @@ public:
 
 	UFUNCTION(BlueprintCallable)
 	bool CancelWorkRequest(int32 RequestId);
+
+	/**
+	 * Removes a Page from its active work instance without cancelling the order.
+	 * Shared work remains available to other Pages; Page-specific work waits for its
+	 * designated Page to become available again.
+	 */
+	UFUNCTION(BlueprintCallable)
+	bool InterruptPageWork(int32 PageId);
 
 	virtual void WriteToSnapshot_Implementation(FEidosWorldSnapshot& InOutSnapshot) const override;
 	virtual void ApplySnapshot_Implementation(const FEidosWorldSnapshot& Snapshot) override;
@@ -136,7 +151,9 @@ private:
 	void HandleInstanceCompleted(const FWorkInstance& Inst);
 	void BroadcastRequestState(int32 RequestId, EWorkRequestLifecycleState NewState);
 
-	FVector ResolveSiteLocationForWork(const FWorkDefinitionRow& Def) const;
+	/** Generic world-work tags use the settlement origin; all other tags require a completed tagged building. */
+	bool FindWorkSiteLocation(const FWorkDefinitionRow& Def, FVector& OutLocation) const;
+	bool DoesWorkUseCompletedFacility(const FWorkDefinitionRow& Def) const;
 	
 	
 };

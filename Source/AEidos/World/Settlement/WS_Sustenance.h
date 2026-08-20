@@ -78,6 +78,7 @@ private:
 	void RefreshDemandFromPopulation();
 	void RefreshMealStorageFromWarehouse();
 	void ServeSettlementMeal();
+	void ApplyCurrentSustenanceStateToPages(float FixedDeltaSeconds);
 	const struct FItemDefinitionRow* FindItemDefinition(FName ItemId) const;
 
 	UPROPERTY()

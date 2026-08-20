@@ -95,6 +95,10 @@ public:
 	UFUNCTION(BlueprintPure, Category="Combat")
 	bool IsCombatActive() const;
 
+	/** True while this page is enrolled in the current encounter, regardless of turn. */
+	UFUNCTION(BlueprintPure, Category="Combat")
+	bool IsCombatant(const APageCharacter* Page) const;
+
 	UFUNCTION(BlueprintPure, Category="Combat")
 	bool IsPageTurnActive(const APageCharacter* Page) const;
 

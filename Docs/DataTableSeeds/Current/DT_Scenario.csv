@@ -1,0 +1,2 @@
+Name,ScenarioId,DisplayName,Description,RequiredResearchIds,RequiredBuildingIds,RequiredDungeonCoreDestructions,RequiredPageCount
+Prototype_ClearOne,Prototype_ClearOne,Prototype Clear One,"Complete one dungeon core after selecting this test scenario.","()","()",1,0

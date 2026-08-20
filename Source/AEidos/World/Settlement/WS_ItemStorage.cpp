@@ -10,6 +10,49 @@
 #include "World/Settlement/WS_Building.h"
 #include "World/Settlement/WS_Economy.h"
 
+namespace
+{
+	bool HasSameDungeonAttributes(const FItemStack& A, const FItemStack& B)
+	{
+		if (A.DungeonAttributes.Num() != B.DungeonAttributes.Num()) return false;
+		for (int32 Index = 0; Index < A.DungeonAttributes.Num(); ++Index)
+		{
+			const FDungeonAttributeWeight& Left = A.DungeonAttributes[Index];
+			const FDungeonAttributeWeight& Right = B.DungeonAttributes[Index];
+			if (Left.AttributeId != Right.AttributeId || Left.Strength != Right.Strength || !FMath::IsNearlyEqual(Left.Weight, Right.Weight)) return false;
+		}
+		return true;
+	}
+
+	FString EncodeDungeonAttributes(const TArray<FDungeonAttributeWeight>& Attributes)
+	{
+		TArray<FString> Parts;
+		for (const FDungeonAttributeWeight& Attribute : Attributes)
+		{
+			if (!Attribute.AttributeId.IsNone() && Attribute.Strength > 0)
+			{
+				Parts.Add(FString::Printf(TEXT("%s:%.4f:%d"), *Attribute.AttributeId.ToString(), Attribute.Weight, Attribute.Strength));
+			}
+		}
+		return FString::Join(Parts, TEXT("|"));
+	}
+
+	void DecodeDungeonAttributes(const FString& Encoded, TArray<FDungeonAttributeWeight>& OutAttributes)
+	{
+		OutAttributes.Reset();
+		TArray<FString> Parts;
+		Encoded.ParseIntoArray(Parts, TEXT("|"), true);
+		for (const FString& Part : Parts)
+		{
+			TArray<FString> Fields;
+			Part.ParseIntoArray(Fields, TEXT(":"), false);
+			if (Fields.Num() != 3 || Fields[0].IsEmpty()) continue;
+			const int32 Strength = FCString::Atoi(*Fields[2]);
+			if (Strength > 0) OutAttributes.Add({ FName(*Fields[0]), FCString::Atof(*Fields[1]), Strength });
+		}
+	}
+}
+
 void UWS_ItemStorage::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -231,6 +274,18 @@ int32 UWS_ItemStorage::TryStoreItem(FName ItemId, int32 RequestedQuantity, float
 	return Added;
 }
 
+int32 UWS_ItemStorage::TryStoreItemStack(const FItemStack& ItemStack)
+{
+	if (!ItemStack.IsValid()) return 0;
+	if (ItemStack.DungeonAttributes.IsEmpty()) return TryStoreItem(ItemStack.ItemId, ItemStack.Quantity, ItemStack.TotalQuality);
+
+	const FItemDefinitionRow* Def = FindItemDefinition(ItemStack.ItemId);
+	if (!Def || ItemStack.Quantity > Def->StackLimit || !CanStoreItemStacks({ ItemStack })) return 0;
+	StoredItems.Add(ItemStack);
+	BroadcastChanged();
+	return ItemStack.Quantity;
+}
+
 int32 UWS_ItemStorage::TryTakeStoredItem(FName ItemId, int32 RequestedQuantity, float& OutRemovedQuality)
 {
 	OutRemovedQuality = 0.f;
@@ -262,6 +317,21 @@ int32 UWS_ItemStorage::TryTakeStoredItem(FName ItemId, int32 RequestedQuantity, 
 	return Removed;
 }
 
+bool UWS_ItemStorage::TryTakeStoredItemStack(const FItemStack& ItemStack)
+{
+	for (int32 Index = 0; Index < StoredItems.Num(); ++Index)
+	{
+		if (StoredItems[Index].ItemId == ItemStack.ItemId && StoredItems[Index].Quantity == ItemStack.Quantity
+			&& HasSameDungeonAttributes(StoredItems[Index], ItemStack))
+		{
+			StoredItems.RemoveAt(Index);
+			BroadcastChanged();
+			return true;
+		}
+	}
+	return false;
+}
+
 void UWS_ItemStorage::DepositPageInventory(APageCharacter* Page)
 {
 	UInventoryComponent* Inventory = Page ? Page->GetInventory() : nullptr;
@@ -282,13 +352,48 @@ void UWS_ItemStorage::DepositPageInventory(APageCharacter* Page)
 
 		const int32 Accepted = Def->bConvertOnReturn && !Def->SettlementResourceId.IsNone()
 			? Economy->TryAddAmount(Def->SettlementResourceId, Stack.Quantity)
-			: TryStoreItem(Stack.ItemId, Stack.Quantity, Stack.TotalQuality);
+			: TryStoreItemStack(Stack);
 		if (Accepted > 0)
 		{
-			float IgnoredQuality = 0.f;
-			Inventory->TryRemoveItem(Stack.ItemId, Accepted, IgnoredQuality);
+			if (!Stack.DungeonAttributes.IsEmpty()) Inventory->TryRemoveItemStack(Stack);
+			else { float IgnoredQuality = 0.f; Inventory->TryRemoveItem(Stack.ItemId, Accepted, IgnoredQuality); }
 		}
 	}
+}
+
+bool UWS_ItemStorage::HasCompletedEPAltar() const
+{
+	UWS_Building* Buildings = GetWorld() ? GetWorld()->GetSubsystem<UWS_Building>() : nullptr;
+	if (!Buildings) return false;
+	TArray<FName> CompletedBuildingIds;
+	Buildings->GetCompletedBuildingIds(CompletedBuildingIds);
+	return CompletedBuildingIds.Contains(TEXT("EP_Altar"));
+}
+
+bool UWS_ItemStorage::OfferPortalShardAtIndex(int32 StoredStackIndex)
+{
+	if (!StoredItems.IsValidIndex(StoredStackIndex) || !HasCompletedEPAltar()) return false;
+	const FItemStack& Shard = StoredItems[StoredStackIndex];
+	if (Shard.ItemId != TEXT("PortalShard") || Shard.DungeonAttributes.IsEmpty()) return false;
+
+	UWS_Economy* Economy = GetWorld() ? GetWorld()->GetSubsystem<UWS_Economy>() : nullptr;
+	if (!Economy) return false;
+	for (const FDungeonAttributeWeight& Attribute : Shard.DungeonAttributes)
+	{
+		const FName ReserveId(*FString::Printf(TEXT("%s_Attribute"), *Attribute.AttributeId.ToString()));
+		if (Attribute.Strength <= 0 || !FindResourceDefinition(ReserveId)) return false;
+	}
+
+	const FItemStack OfferedShard = Shard;
+	StoredItems.RemoveAt(StoredStackIndex);
+	for (const FDungeonAttributeWeight& Attribute : OfferedShard.DungeonAttributes)
+	{
+		const FName ReserveId(*FString::Printf(TEXT("%s_Attribute"), *Attribute.AttributeId.ToString()));
+		Economy->AddAmount(ReserveId, Attribute.Strength);
+	}
+	BroadcastChanged();
+	UE_LOG(LogTemp, Log, TEXT("[EP Altar] Absorbed PortalShard with %d attribute components"), OfferedShard.DungeonAttributes.Num());
+	return true;
 }
 
 void UWS_ItemStorage::ConvertReturnResources(APageCharacter* Page)
@@ -341,7 +446,7 @@ FString UWS_ItemStorage::EncodeStacks(const TArray<FItemStack>& Stacks)
 	{
 		if (Stack.IsValid())
 		{
-			Entries.Add(FString::Printf(TEXT("%s,%d,%.6f"), *Stack.ItemId.ToString(), Stack.Quantity, Stack.TotalQuality));
+			Entries.Add(FString::Printf(TEXT("%s,%d,%.6f,%s"), *Stack.ItemId.ToString(), Stack.Quantity, Stack.TotalQuality, *EncodeDungeonAttributes(Stack.DungeonAttributes)));
 		}
 	}
 	return FString::Join(Entries, TEXT(";"));
@@ -356,7 +461,7 @@ void UWS_ItemStorage::DecodeStacks(const FString& Encoded, TArray<FItemStack>& O
 	{
 		TArray<FString> Fields;
 		Entry.ParseIntoArray(Fields, TEXT(","), false);
-		if (Fields.Num() != 3)
+		if (Fields.Num() < 3)
 		{
 			continue;
 		}
@@ -364,6 +469,7 @@ void UWS_ItemStorage::DecodeStacks(const FString& Encoded, TArray<FItemStack>& O
 		Stack.ItemId = FName(*Fields[0]);
 		Stack.Quantity = FCString::Atoi(*Fields[1]);
 		Stack.TotalQuality = FCString::Atof(*Fields[2]);
+		if (Fields.Num() >= 4) DecodeDungeonAttributes(Fields[3], Stack.DungeonAttributes);
 		if (Stack.IsValid())
 		{
 			OutStacks.Add(Stack);

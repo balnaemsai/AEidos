@@ -1,0 +1,6 @@
+Name,BlockId,InteractionId,DisplayName,Description,RequiredToolTag,ResultItemId,ResultQuantity,IntegrityDamage,bIsDefault,bConsumesIntegrity
+StoneChunk_Harvest,StoneChunk,Harvest,Harvest,Mine stone with a pickaxe.,Tool.Pickaxe,StoneChunk,1,1,TRUE,TRUE
+StoneChunk_PickUp,StoneChunk,PickUp,Pick Up,Carry this block without breaking it.,,StoneChunk,1,3,FALSE,TRUE
+WoodLog_Harvest,WoodLog,Harvest,Harvest,Chop wood with an axe.,Tool.Axe,WoodBundle,2,1,TRUE,TRUE
+DoorWood_Open,DoorWood,Open,Open,Open the wooden door.,,,,,TRUE,FALSE
+SwitchLever_Toggle,SwitchLever,Toggle,Toggle this lever.,,,,,TRUE,FALSE

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Entities/Items/EquipmentComponent.h"
+#include "Core/Types/WorkTypes.h"
 #include "GameFramework/Character.h"
 #include "InputActionValue.h"
 #include "PageCharacter.generated.h"
@@ -76,6 +77,7 @@ struct FPageJobState
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bIsActive = false;
+
 };
 
 
@@ -151,6 +153,20 @@ public:
 	UFUNCTION(BlueprintPure, Category="Page|Faction")
 	bool IsCaptive() const { return Faction == EPageFaction::Captive; }
 
+	/** Remaining resistance while this hostile is held captive. Zero permits recruitment. */
+	UFUNCTION(BlueprintPure, Category="Page|Captive")
+	float GetCaptiveResistance() const { return CaptiveResistance; }
+
+	UFUNCTION(BlueprintCallable, Category="Page|Captive")
+	void SetCaptiveResistance(float NewResistance) { CaptiveResistance = FMath::Max(0.f, NewResistance); }
+
+	UFUNCTION(BlueprintCallable, Category="Page|Captive")
+	float ReduceCaptiveResistance(float Amount)
+	{
+		CaptiveResistance = FMath::Max(0.f, CaptiveResistance - FMath::Max(0.f, Amount));
+		return CaptiveResistance;
+	}
+
 	UFUNCTION(BlueprintPure, Category="Page|Faction")
 	bool IsHostileTo(const APageCharacter* OtherPage) const;
 
@@ -211,8 +227,45 @@ public:
 	UFUNCTION(BlueprintPure, Category="Page|Settlement")
 	bool IsSettlementOverCapacity() const { return bSettlementOverCapacity; }
 
+	/** Starts or clears the settlement-wide starvation state for this friendly Page. */
+	UFUNCTION(BlueprintCallable, Category="Page|Settlement|Sustenance")
+	void SetSettlementFoodShortage(bool bNewFoodShortage);
+
+	/** Advances starvation only while the settlement has failed its meal service. */
+	void AdvanceSettlementStarvation(float DeltaSeconds);
+
+	UFUNCTION(BlueprintPure, Category="Page|Settlement|Sustenance")
+	bool HasSettlementFoodShortage() const { return bSettlementFoodShortage; }
+
+	UFUNCTION(BlueprintPure, Category="Page|Settlement|Sustenance")
+	float GetSettlementStarvationSeverity() const { return SettlementStarvationSeverity; }
+
+	float GetSettlementMovementMultiplier() const;
+	float GetSettlementWorkRateMultiplier() const;
+	float GetSettlementCombatDamageMultiplier() const;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page")
 	FPageJobState CurrentJobState;
+
+	/**
+	 * Marks this Page as player-directed for a short period.  Automatic work
+	 * assignment must wait until player input has stopped before taking control back.
+	 */
+	UFUNCTION(BlueprintCallable, Category="Page|Work")
+	void BeginManualWorkOverride();
+
+	UFUNCTION(BlueprintPure, Category="Page|Work")
+	bool IsManualWorkOverrideActive() const;
+
+	/** Returns this Page's category priority. Missing entries use the neutral default of 3. */
+	UFUNCTION(BlueprintPure, Category="Page|Work")
+	int32 GetWorkPriority(EWorkCategory WorkCategory) const;
+
+	UFUNCTION(BlueprintCallable, Category="Page|Work")
+	void SetWorkPriority(EWorkCategory WorkCategory, int32 NewPriority);
+
+	const TArray<FPageWorkPriority>& GetWorkPriorities() const { return WorkPriorities; }
+	void SetWorkPriorities(const TArray<FPageWorkPriority>& InPriorities);
 
 protected:
 	virtual void BeginPlay() override;
@@ -229,6 +282,17 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category="Input")
 	UInputAction* MoveAction;
+
+	/** Seconds after the last manual input before automatic work may resume. */
+	UPROPERTY(EditDefaultsOnly, Category="Page|Work", meta=(ClampMin="0.0", ClampMax="10.0"))
+	float ManualWorkOverrideGraceSeconds = 1.25f;
+
+	UPROPERTY(Transient)
+	float ManualWorkOverrideUntilTime = -1.f;
+
+	/** Per-category preferences used by automatic work assignment. Empty entries mean priority 3. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page|Work")
+	TArray<FPageWorkPriority> WorkPriorities;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
 	USpringArmComponent* SpringArm;
@@ -285,6 +349,9 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Page|Faction")
 	EPageFaction Faction = EPageFaction::Friendly;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Captive", meta=(ClampMin="0.0"))
+	float CaptiveResistance = 0.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Page|Combat")
 	TArray<FPageCombatActionSlot> CombatActionSlots;
 
@@ -318,6 +385,28 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Page|Settlement", meta=(ClampMin="0.01", ClampMax="1.0"))
 	float OverCapacityMovementMultiplier = 0.75f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Settlement|Sustenance")
+	bool bSettlementFoodShortage = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Page|Settlement|Sustenance")
+	float SettlementStarvationSeverity = 0.f;
+
+	/** Seconds of an uninterrupted food shortage before the full starvation penalty applies. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Page|Settlement|Sustenance", meta=(ClampMin="1.0"))
+	float StarvationSecondsToMaximum = 600.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Page|Settlement|Sustenance", meta=(ClampMin="0.01", ClampMax="1.0"))
+	float StarvationMinimumMovementMultiplier = 0.35f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Page|Settlement|Sustenance", meta=(ClampMin="0.01", ClampMax="1.0"))
+	float StarvationMinimumWorkRateMultiplier = 0.40f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Page|Settlement|Sustenance", meta=(ClampMin="0.01", ClampMax="1.0"))
+	float StarvationMinimumCombatDamageMultiplier = 0.45f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Page|Settlement|Sustenance", meta=(ClampMin="0.001", ClampMax="1.0"))
+	float StarvationMinimumHealthFraction = 0.01f;
 
 	UFUNCTION()
 	void HandleInventoryChanged();

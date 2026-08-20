@@ -170,6 +170,7 @@ protected:
 
 	UFUNCTION()
 	void OnEndTurnPressed();
+	void OnQuickSavePressed();
 
 	UFUNCTION()
 	void OnCombatActionSlot1();

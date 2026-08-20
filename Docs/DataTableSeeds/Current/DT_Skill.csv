@@ -1,0 +1,14 @@
+Name,SkillId,DisplayName,BaseExpToLevel,ExpGrowthFactor,MultiplierPerLevel,MaxLevel,RelatedSkillCoefficients,bIsActiveCombatSkill,CombatActionPointCost,CombatRangeCm,bRequiresTarget,bTargetHostileOnly,CombatDamageAmount,bCapturesTargetOnDefeat,RequiredEquipmentTags,bRequireAllEquipmentTags
+Construction,Construction,Construction,100,1.12,0.05,50,(),FALSE,1,0,FALSE,FALSE,0,FALSE,(),TRUE
+Gathering,Gathering,Gathering,100,1.1,0.04,50,(),FALSE,1,0,FALSE,FALSE,0,FALSE,(),TRUE
+Cooking,Cooking,Cooking,100,1.12,0.05,50,(),FALSE,1,0,FALSE,FALSE,0,FALSE,(),TRUE
+Research,Research,Research,120,1.15,0.04,50,(),FALSE,1,0,FALSE,FALSE,0,FALSE,(),TRUE
+Crafting,Crafting,Crafting,100,1.12,0.05,50,(),FALSE,1,0,FALSE,FALSE,0,FALSE,(),TRUE
+Engineering,Engineering,Engineering,120,1.14,0.05,50,(),FALSE,1,0,FALSE,FALSE,0,FALSE,(),TRUE
+Lumbering,Lumbering,Lumbering,100,1.10,0.04,50,(),FALSE,1,0,FALSE,FALSE,0,FALSE,(),TRUE
+Mining,Mining,Mining,100,1.10,0.04,50,(),FALSE,1,0,FALSE,FALSE,0,FALSE,(),TRUE
+Refining,Refining,Refining,120,1.14,0.05,50,(),FALSE,1,0,FALSE,FALSE,0,FALSE,(),TRUE
+Recruit_Captive,Recruit_Captive,Captive Recruitment,120,1.15,0.04,50,(),FALSE,1,0,FALSE,FALSE,0,FALSE,(),TRUE
+Endurance,Endurance,Endurance,120,1.1,0.03,50,(),FALSE,1,0,FALSE,FALSE,0,FALSE,(),TRUE
+Slash,Slash,Slash,120,1.15,0.05,30,(),TRUE,1,170,TRUE,TRUE,22,FALSE,(),TRUE
+Subdue,Subdue,Subdue,120,1.15,0.05,30,(),TRUE,1,170,TRUE,TRUE,100,TRUE,(),TRUE

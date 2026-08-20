@@ -69,6 +69,11 @@ struct FItemDefinitionRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Equipment")
 	TArray<FName> ToolInteractionTags;
 
+	// Generic equipment tags used by combat skills, e.g. Weapon.Melee or Weapon.Throwable.
+	// ToolInteractionTags remain supported so existing gathering tools need no migration.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Equipment")
+	TArray<FName> EquipmentTags;
+
 	// Non-None items turn into this warehouse resource when a Page returns.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FName SettlementResourceId = NAME_None;

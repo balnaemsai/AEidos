@@ -140,7 +140,7 @@ struct FDungeonPortalView
 	FText DisplayName;
 
 	UPROPERTY(BlueprintReadOnly)
-	FText TierText;
+	FText DifficultyText;
 
 	UPROPERTY(BlueprintReadOnly)
 	FText StatusText;

@@ -51,6 +51,12 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void OnDungeonCleared(int32 PortalId);
 
+	/** Removes the portal after every raider released by it has been defeated or captured. */
+	void ResolveRaid(int32 PortalId);
+
+	/** Removes an unresolved raid portal without granting its completion reward. */
+	void FailRaid(int32 PortalId);
+
 	UFUNCTION(BlueprintCallable)
 	bool TryGetPortalState(int32 PortalId, FPortalState& OutState) const;
 
@@ -99,6 +105,7 @@ private:
 	void FinalizeSpawnedPortals();
 
 	FPortalState MakePortalState(const FPortalDefinitionRow& Def);
+	void RollDungeonAttributes(FPortalState& InOutState) const;
 	FVector ChoosePortalSpawnLocation(const FPortalDefinitionRow& Def) const;
 	bool SetPortalStatus(FPortalState& Portal, EPortalStatus NewStatus);
 	void NormalizePortalState(FPortalState& Portal) const;

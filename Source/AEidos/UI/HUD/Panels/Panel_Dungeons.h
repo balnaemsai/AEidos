@@ -49,7 +49,7 @@ protected:
 	TObjectPtr<UTextBlock> Text_SelectedPortalName;
 
 	UPROPERTY(meta=(BindWidgetOptional))
-	TObjectPtr<UTextBlock> Text_SelectedTier;
+	TObjectPtr<UTextBlock> Text_SelectedDifficulty;
 
 	UPROPERTY(meta=(BindWidgetOptional))
 	TObjectPtr<UTextBlock> Text_PortalStatus;

@@ -26,12 +26,21 @@ public:
 	bool HasPendingSnapshot() const { return bHasPendingSnapshot; }
 	void SetPendingSnapshot(const FEidosWorldSnapshot& InSnapshot);
 	void ClearPendingSnapshot();
+	/** Starts a clean session and discards the transient new-game snapshot from any earlier run. */
+	void StartNewGame(const FString& MapNameHint = TEXT(""));
 	
 	void ApplyPendingSnapshotToWorld(UWorld& World);
 
 
 	bool SaveToSlot(UWorld& World, const FString& SlotName, int32 UserIndex = 0);
 	bool LoadFromSlotToPending(const FString& SlotName, int32 UserIndex = 0);
+
+	/**
+	 * The current snapshot format intentionally excludes streamed dungeon and
+	 * active raid runtime actors. Rejecting those saves is safer than creating
+	 * a slot that cannot be restored faithfully.
+	 */
+	bool CanSaveWorld(const UWorld& World, FString& OutReason) const;
 
 	void BuildNewGameSnapshotIfNeeded(const FString& MapNameHint = TEXT(""));
 

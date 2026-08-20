@@ -109,7 +109,8 @@ int32 UWS_Research::StartResearch(FName ResearchId)
 {
 	const FResearchDefinitionRow* Definition = FindDefinition(ResearchId);
 	UWS_Work* Work = WorkSubsystem.Get();
-	if (!Definition || !Work || HasCompletedResearch(ResearchId) || !ArePrerequisitesMet(*Definition) || FindOutstandingRequestId(*Definition) != INDEX_NONE)
+	if (!Definition || !Work || HasCompletedResearch(ResearchId) || !ArePrerequisitesMet(*Definition)
+		|| FindOutstandingRequestId(*Definition) != INDEX_NONE)
 	{
 		return INDEX_NONE;
 	}

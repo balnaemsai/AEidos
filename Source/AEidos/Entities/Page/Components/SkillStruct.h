@@ -18,4 +18,16 @@ struct FPageSkillRuntime
 	// 현재 레벨
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	int32 Level = 0;
+
+	/** Per-Page, per-skill aptitude applied to all XP gained for this skill. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(ClampMin="0.01"))
+	float ExperienceGainTalent = 1.f;
+
+	/** Per-Page, per-skill aptitude applied to this skill's gameplay multiplier. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(ClampMin="0.01"))
+	float EffectTalent = 1.f;
+
+	/** Distinguishes legacy save states from a deliberately neutral 1.0 talent. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bTalentInitialized = false;
 };

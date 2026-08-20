@@ -4,6 +4,21 @@
 #include "Data/GIS_DataRegistry.h"
 #include "Engine/GameInstance.h"
 
+namespace
+{
+	bool HasSameDungeonAttributes(const FItemStack& A, const FItemStack& B)
+	{
+		if (A.DungeonAttributes.Num() != B.DungeonAttributes.Num()) return false;
+		for (int32 Index = 0; Index < A.DungeonAttributes.Num(); ++Index)
+		{
+			const FDungeonAttributeWeight& Left = A.DungeonAttributes[Index];
+			const FDungeonAttributeWeight& Right = B.DungeonAttributes[Index];
+			if (Left.AttributeId != Right.AttributeId || Left.Strength != Right.Strength || !FMath::IsNearlyEqual(Left.Weight, Right.Weight)) return false;
+		}
+		return true;
+	}
+}
+
 UInventoryComponent::UInventoryComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
@@ -96,6 +111,18 @@ int32 UInventoryComponent::TryAddItem(FName ItemId, int32 RequestedQuantity, flo
 	return Added;
 }
 
+int32 UInventoryComponent::TryAddItemStack(const FItemStack& ItemStack)
+{
+	if (!ItemStack.IsValid()) return 0;
+	if (ItemStack.DungeonAttributes.IsEmpty()) return TryAddItem(ItemStack.ItemId, ItemStack.Quantity, ItemStack.TotalQuality);
+
+	const FItemDefinitionRow* Def = FindDefinition(ItemStack.ItemId);
+	if (!Def || ItemStack.Quantity > Def->StackLimit) return 0;
+	Stacks.Add(ItemStack);
+	BroadcastChanged();
+	return ItemStack.Quantity;
+}
+
 int32 UInventoryComponent::TryRemoveItem(FName ItemId, int32 RequestedQuantity, float& OutRemovedQuality)
 {
 	OutRemovedQuality = 0.f;
@@ -127,6 +154,21 @@ int32 UInventoryComponent::TryRemoveItem(FName ItemId, int32 RequestedQuantity, 
 		BroadcastChanged();
 	}
 	return Removed;
+}
+
+bool UInventoryComponent::TryRemoveItemStack(const FItemStack& ItemStack)
+{
+	for (int32 Index = 0; Index < Stacks.Num(); ++Index)
+	{
+		if (Stacks[Index].ItemId == ItemStack.ItemId && Stacks[Index].Quantity == ItemStack.Quantity
+			&& HasSameDungeonAttributes(Stacks[Index], ItemStack))
+		{
+			Stacks.RemoveAt(Index);
+			BroadcastChanged();
+			return true;
+		}
+	}
+	return false;
 }
 
 void UInventoryComponent::SetStacks(const TArray<FItemStack>& InStacks)

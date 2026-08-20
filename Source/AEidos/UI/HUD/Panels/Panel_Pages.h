@@ -27,6 +27,7 @@ class AEIDOS_API UPanel_Pages : public UUserWidget, public IPanelLifecycle
 public:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 	virtual void OnPanelShown_Implementation() override;
 	virtual void OnPanelHidden_Implementation() override;
 
@@ -95,9 +96,23 @@ protected:
 	UPROPERTY(meta=(BindWidgetOptional))
 	TObjectPtr<UButton> Button_Equipment;
 
+	UPROPERTY(meta=(BindWidgetOptional))
+	TObjectPtr<UButton> Button_WorkPriorities;
+
+	/** Adds/removes the selected Page from the settlement portal expedition roster. */
+	UPROPERTY(meta=(BindWidgetOptional))
+	TObjectPtr<UButton> Button_ExpeditionRoster;
+
+	UPROPERTY(meta=(BindWidgetOptional))
+	TObjectPtr<UTextBlock> Text_ExpeditionRoster;
+
 	// Visible only while a captive entry is being inspected.
 	UPROPERTY(meta=(BindWidgetOptional))
 	TObjectPtr<UButton> Button_RecruitCaptive;
+
+	/** Optional label inside Button_RecruitCaptive. It changes between start, queued, and cancel states. */
+	UPROPERTY(meta=(BindWidgetOptional))
+	TObjectPtr<UTextBlock> Text_RecruitCaptive;
 
 	UPROPERTY(EditDefaultsOnly, Category="Pages")
 	TSubclassOf<UPageEntry> PageEntryClass;
@@ -124,6 +139,7 @@ protected:
 	TWeakObjectPtr<UStatsComponent> ObservedStats;
 	TWeakObjectPtr<APageCharacter> InspectedCaptive;
 	FDelegateHandle ActorDestroyedHandle;
+	float CaptiveDetailRefreshElapsed = 0.f;
 
 	void RebuildPageEntryWidgets();
 	void RefreshDetailWidgets();
@@ -145,6 +161,12 @@ protected:
 
 	UFUNCTION()
 	void HandleEquipmentClicked();
+
+	UFUNCTION()
+	void HandleWorkPrioritiesClicked();
+
+	UFUNCTION()
+	void HandleExpeditionRosterClicked();
 
 	UFUNCTION()
 	void HandleRecruitCaptiveClicked();

@@ -22,7 +22,7 @@ public:
 	virtual void BeginPlay() override;
 
 	UFUNCTION(BlueprintCallable)
-	void InitializePortal(int32 InPortalId, int32 InTier);
+	void InitializePortal(int32 InPortalId, float InDungeonDifficulty);
 
 	UFUNCTION(BlueprintCallable)
 	void Interact(APlayerController* InteractingPC);
@@ -31,7 +31,7 @@ public:
 	int32 GetPortalId() const { return PortalId; }
 
 	UFUNCTION(BlueprintPure)
-	int32 GetTier() const { return Tier; }
+	float GetDungeonDifficulty() const { return DungeonDifficulty; }
 
 	UFUNCTION(BlueprintImplementableEvent)
 	void BP_OnPortalInitialized();
@@ -53,6 +53,6 @@ protected:
 	int32 PortalId = INDEX_NONE;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Portal")
-	int32 Tier = 1;
+	float DungeonDifficulty = 1.f;
 
 };

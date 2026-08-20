@@ -99,8 +99,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon")
 	FName ThemeId = NAME_None;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon")
-	int32 SuggestedTier = 1;
+	/** Empty means this preset is visually neutral and accepts every dungeon attribute. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon|Attributes")
+	TArray<FName> SupportedAttributeIds;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Dungeon")
 	float ChunkSizeCm = 1000.f;

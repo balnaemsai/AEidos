@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Core/Types/DungeonTypes.h"
 #include "ItemTypes.generated.h"
 
 UENUM(BlueprintType)
@@ -71,6 +72,10 @@ struct FItemStack
 	// Sum rather than average so differently produced meals can merge safely.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float TotalQuality = 0.f;
+
+	/** Present only on a PortalShard. It makes each shard a distinct dungeon-core item. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TArray<FDungeonAttributeWeight> DungeonAttributes;
 
 	bool IsValid() const { return !ItemId.IsNone() && Quantity > 0; }
 };

@@ -35,6 +35,8 @@ void UWS_Sustenance::SimPlan_Implementation(USimCommandBuffer* CommandBuffer, fl
 		MealServiceElapsedSeconds -= MealServiceIntervalSeconds;
 		ServeSettlementMeal();
 	}
+
+	ApplyCurrentSustenanceStateToPages(FixedDeltaSeconds);
 }
 
 void UWS_Sustenance::SimPost_Implementation(float FixedDeltaSeconds)
@@ -109,8 +111,12 @@ void UWS_Sustenance::RefreshDemandFromPopulation()
 		}
 	}
 
-	LastKnownPopulation = FriendlyCount;
-	CurrentDailyMealDemandUnits = FriendlyCount * DailyMealDemandPerPage;
+	TArray<APageCharacter*> Captives;
+	Population->GetCaptivePages(Captives);
+
+	// Captives use the same settlement meal service while they occupy detention capacity.
+	LastKnownPopulation = FriendlyCount + Captives.Num();
+	CurrentDailyMealDemandUnits = LastKnownPopulation * DailyMealDemandPerPage;
 }
 
 const FItemDefinitionRow* UWS_Sustenance::FindItemDefinition(FName ItemId) const
@@ -218,4 +224,22 @@ void UWS_Sustenance::ServeSettlementMeal()
 		LastMealCoverage * 100.f,
 		LastServedAverageMealQuality,
 		bFoodShortage ? TEXT(" SHORTAGE") : TEXT(""));
+}
+
+void UWS_Sustenance::ApplyCurrentSustenanceStateToPages(float FixedDeltaSeconds)
+{
+	UWS_Population* Population = GetWorld() ? GetWorld()->GetSubsystem<UWS_Population>() : nullptr;
+	if (!Population)
+	{
+		return;
+	}
+
+	for (const TWeakObjectPtr<APageCharacter>& WeakPage : Population->GetOwnedPages())
+	{
+		if (APageCharacter* Page = WeakPage.Get())
+		{
+			Page->SetSettlementFoodShortage(bFoodShortage);
+			Page->AdvanceSettlementStarvation(FixedDeltaSeconds);
+		}
+	}
 }

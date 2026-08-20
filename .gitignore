@@ -46,6 +46,28 @@
 SourceArt/**/*.png
 SourceArt/**/*.tga
 
+# Local source art and AI-generated working assets
+ArtSource/
+
+# Internal planning, portfolio drafts, and asset-production notes
+Docs/AEidos_게임_계획서_v2.md
+Docs/AEidos_Implementation_Status.md
+Docs/AEidos_그래픽_리소스_제작_목록.md
+Docs/DT_Item_나노바나나_아이콘_프롬프트.md
+Docs/AEidos_펄어비스_인턴_포트폴리오_정리.md
+Docs/AEidos_펄어비스_인턴_포트폴리오_구성안.docx
+Docs/_qa_portfolio/
+
+# Historical DataTable seeds and local inspection/portfolio helpers
+Docs/DataTableSeeds/*.csv
+Docs/DataTableSeeds/README.md
+Scripts/inspect_*.py
+Scripts/inspect_*.txt
+Scripts/verify_datatable_seed_import.py
+Scripts/reimport_dt_portal.py
+Scripts/reimport_dt_dungeon_attribute.py
+Scripts/create_portfolio_docx.py
+
 # Binary Files
 Binaries/*
 Plugins/**/Binaries/*

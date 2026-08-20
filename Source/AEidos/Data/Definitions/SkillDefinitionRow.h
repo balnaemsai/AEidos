@@ -59,4 +59,15 @@ struct FSkillDefinitionRow : public FTableRowBase
 	// A capture skill turns a hostile Page reaching 0 HP into a captive instead of destroying it.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat")
 	bool bCapturesTargetOnDefeat = false;
+
+	/**
+	 * Equipment tags required to activate this skill. Empty means the skill is
+	 * usable without a weapon requirement. Tags are resolved from either hand.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat|Equipment")
+	TArray<FName> RequiredEquipmentTags;
+
+	/** True requires every tag above; false accepts any one of them. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat|Equipment")
+	bool bRequireAllEquipmentTags = true;
 };

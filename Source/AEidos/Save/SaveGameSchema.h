@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Core/Types/ItemTypes.h"
 #include "Core/Types/WorkTypes.h"
+#include "Entities/Page/Components/SkillStruct.h"
 #include "SaveGameSchema.generated.h"
 
 USTRUCT(BlueprintType)
@@ -57,6 +58,21 @@ struct FEidosResearchSnapshot
 };
 
 USTRUCT(BlueprintType)
+struct FEidosScenarioSnapshot
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadWrite)
+	FName ActiveScenarioId = NAME_None;
+
+	UPROPERTY(BlueprintReadWrite)
+	int32 DestroyedDungeonCoreCount = 0;
+
+	UPROPERTY(BlueprintReadWrite)
+	bool bCompleted = false;
+};
+
+USTRUCT(BlueprintType)
 struct FEidosSustenanceSnapshot
 {
 	GENERATED_BODY()
@@ -105,6 +121,12 @@ struct FEidosPageSnapshot
 
 	UPROPERTY(BlueprintReadWrite)
 	TArray<FPageEquipmentSlotState> EquipmentSlots;
+
+	UPROPERTY(BlueprintReadWrite)
+	TArray<FPageWorkPriority> WorkPriorities;
+
+	UPROPERTY(BlueprintReadWrite)
+	TMap<FName, FPageSkillRuntime> SkillStates;
 };
 
 USTRUCT(BlueprintType)
@@ -117,6 +139,10 @@ struct FEidosPopulationSnapshot
 
 	UPROPERTY(BlueprintReadWrite)
 	TArray<FEidosPageSnapshot> Pages;
+
+	/** Page IDs marked to join together when one of them enters a settlement portal. */
+	UPROPERTY(BlueprintReadWrite)
+	TArray<int32> ExpeditionRosterPageIds;
 };
 
 UENUM(BlueprintType)
@@ -202,6 +228,9 @@ public:
 
 	UPROPERTY(BlueprintReadWrite)
 	FEidosResearchSnapshot Research;
+
+	UPROPERTY(BlueprintReadWrite)
+	FEidosScenarioSnapshot Scenario;
 
 	UPROPERTY(BlueprintReadWrite)
 	TMap<FName, FString> KV;

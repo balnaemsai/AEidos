@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
+#include "Core/Types/DungeonTypes.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "WS_DungeonRuntime.generated.h"
 
@@ -13,6 +14,9 @@ class UDungeonSettlementPreset;
 class ULevel;
 class ULevelStreamingDynamic;
 class UWorld;
+struct FPortalState;
+
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnDungeonCoreDestroyedForScenario, int32 /* PortalId */);
 
 USTRUCT()
 struct FDungeonSessionRuntime
@@ -23,13 +27,30 @@ struct FDungeonSessionRuntime
 	int32 PortalId = INDEX_NONE;
 
 	UPROPERTY()
-	int32 PageEntityId = INDEX_NONE;
-
-	UPROPERTY()
 	FTransform ReturnTransform = FTransform::Identity;
+
+	/** Stable entry anchor used by every Page that joins this expedition. */
+	UPROPERTY()
+	FTransform EntryTransform = FTransform::Identity;
 
 	UPROPERTY()
 	bool bPageTransferred = false;
+
+	UPROPERTY()
+	float SettlementValueAtSpawn = 0.f;
+
+	UPROPERTY()
+	float DungeonDifficulty = 1.f;
+
+	UPROPERTY()
+	TArray<FDungeonAttributeWeight> DungeonAttributes;
+
+	/** The layout selected when this expedition began. */
+	UPROPERTY()
+	TObjectPtr<UDungeonSettlementPreset> SettlementPreset = nullptr;
+
+	UPROPERTY()
+	FName SettlementPresetId = NAME_None;
 
 	UPROPERTY()
 	TArray<TObjectPtr<AActor>> SpawnedActors;
@@ -56,6 +77,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Dungeon")
 	bool EnterDungeonForPortal(int32 PortalId, APageCharacter* EnteringPage);
 
+	/** C++ portal path for entering a single shared dungeon with a prepared group. */
+	bool EnterDungeonForPortal(int32 PortalId, const TArray<APageCharacter*>& EnteringPages);
+
 	UFUNCTION(BlueprintCallable, Category="Dungeon")
 	bool ReturnPageFromActiveDungeon(APageCharacter* ReturningPage);
 
@@ -74,6 +98,11 @@ public:
 	UFUNCTION(BlueprintPure, Category="Dungeon")
 	float GetDungeonCollapseRemainingSeconds() const;
 
+	UFUNCTION(BlueprintPure, Category="Dungeon")
+	int32 GetActiveDungeonPageCount() const;
+
+	FOnDungeonCoreDestroyedForScenario OnDungeonCoreDestroyedForScenario;
+
 private:
 	UFUNCTION()
 	void HandleActiveDungeonLevelShown();
@@ -84,6 +113,8 @@ private:
 	void HandleDungeonCollapseExpired();
 
 	FTransform ResolveDungeonEntryTransform(ULevel* LoadedLevel) const;
+	UDungeonSettlementPreset* ResolveSettlementPresetForPortal(const FPortalState& PortalState) const;
+	bool IsPresetCompatibleWithAttributes(const UDungeonSettlementPreset& Preset, const TArray<FDungeonAttributeWeight>& Attributes) const;
 	FTransform MakeDungeonWorldTransform(const FTransform& LocalTransform) const;
 	void SpawnPresetLayoutIntoDungeon(ULevel* LoadedLevel);
 	void SpawnDungeonChunks(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
@@ -92,12 +123,16 @@ private:
 	void SpawnDungeonEnemies(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
 	void SpawnDungeonWorldBlocks(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
 	void SpawnDungeonWorldItems(ULevel* LoadedLevel, const UDungeonSettlementPreset* Preset);
+	void SpawnCoreShardWorldItems(ADungeonCoreActor* DestroyedCore, ULevel* LoadedLevel);
 	void StartDungeonCollapse(const FTransform& CoreTransform, ULevel* LoadedLevel);
+	int32 ReturnCaptivesFromActiveDungeon();
 	void DestroyPagesStillInDungeon();
 	void EndActiveDungeonSession();
 	void ResetActiveSession();
 	void MovePageIntoDungeon(APageCharacter* Page, const FTransform& EntryTransform);
-	void AddPageToActiveDungeon(APageCharacter* Page);
+	bool AddPageToActiveDungeon(APageCharacter* Page);
+	FTransform GetExpeditionFormationTransform(const FTransform& AnchorTransform, const APageCharacter* Page) const;
+	bool CanJoinActiveExpedition(const APageCharacter* Page) const;
 
 	UPROPERTY(EditDefaultsOnly, Category="Dungeon")
 	TSoftObjectPtr<UWorld> DefaultDungeonLevel;

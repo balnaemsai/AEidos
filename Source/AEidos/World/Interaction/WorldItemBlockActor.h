@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Core/Types/ItemTypes.h"
 #include "World/Interaction/WorldBlockActor.h"
 #include "WorldItemBlockActor.generated.h"
 
@@ -32,6 +33,7 @@ public:
 	/** Initializes an item block spawned when a Page drops an inventory stack into the world. */
 	UFUNCTION(BlueprintCallable, Category="World Item")
 	void InitializeWorldItem(FName InItemId, int32 InQuantity);
+	void InitializeWorldItemStack(const FItemStack& InItemStack);
 
 protected:
 	bool CanInteract(APageCharacter* InteractingPage) const;
@@ -44,4 +46,6 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="World Item") bool bCanPickUp = true;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="World Item") bool bCanHarvest = false;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="World Item", meta=(EditCondition="bCanHarvest")) FName RequiredHarvestToolTag = NAME_None;
+	/** Runtime-only instance data retained for stateful pickups such as PortalShard. */
+	UPROPERTY(Transient) FItemStack RuntimeItemStack;
 };

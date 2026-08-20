@@ -117,6 +117,39 @@ bool UEquipmentComponent::CanUseToolForInteraction(FName ToolTag) const
 		|| HasToolTagInSlot(EPageEquipmentSlot::LeftHand, ToolTag);
 }
 
+bool UEquipmentComponent::ItemMatchesEquipmentTag(FName ItemId, FName RequiredTag) const
+{
+	if (ItemId.IsNone() || RequiredTag.IsNone())
+	{
+		return false;
+	}
+
+	const FItemDefinitionRow* Def = FindItemDefinition(ItemId);
+	return Def && (Def->EquipmentTags.Contains(RequiredTag) || Def->ToolInteractionTags.Contains(RequiredTag));
+}
+
+bool UEquipmentComponent::MeetsEquipmentTagRequirements(const TArray<FName>& RequiredTags, bool bRequireAllTags) const
+{
+	if (RequiredTags.IsEmpty())
+	{
+		return true;
+	}
+
+	const FName RightHand = GetEquippedItem(EPageEquipmentSlot::RightHand);
+	const FName LeftHand = GetEquippedItem(EPageEquipmentSlot::LeftHand);
+	const auto HasTag = [this, RightHand, LeftHand](FName Tag)
+	{
+		return ItemMatchesEquipmentTag(RightHand, Tag) || ItemMatchesEquipmentTag(LeftHand, Tag);
+	};
+
+	if (bRequireAllTags)
+	{
+		return !RequiredTags.ContainsByPredicate([&HasTag](FName Tag) { return Tag.IsNone() || !HasTag(Tag); });
+	}
+
+	return RequiredTags.ContainsByPredicate([&HasTag](FName Tag) { return !Tag.IsNone() && HasTag(Tag); });
+}
+
 bool UEquipmentComponent::EquipFromInventory(FName ItemId, EPageEquipmentSlot Slot)
 {
 	UInventoryComponent* Inventory = GetOwnerInventory();

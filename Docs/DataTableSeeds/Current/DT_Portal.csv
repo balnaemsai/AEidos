@@ -1,0 +1,7 @@
+Name,PortalId,PortalActorClass,bEnableAutoSpawn,SpawnIntervalSeconds,MaxActiveCount,RaidDelaySeconds,DungeonMapId,PresetAsset,MinimumDifficulty,MaximumDifficulty,SelectionWeight,SpawnMinDistance,SpawnMaxDistance
+TestDungeon,TestDungeon,/Game/Blueprints/BP_PortalActor.BP_PortalActor_C,FALSE,10,1,300,DungeonRuntimeBase,/Game/Data/DA_TestDungeon.DA_TestDungeon,0.0,999999.0,1.0,1200,2200
+DefaultPortal,DefaultPortal,/Game/Blueprints/BP_PortalActor.BP_PortalActor_C,TRUE,1200,0,300,DungeonRuntimeBase,/Game/Data/DA_TestDungeon.DA_TestDungeon,0.0,999999.0,1.0,1200,2800
+Portal_Forest_01,Portal_Forest_01,/Game/Blueprints/BP_PortalActor.BP_PortalActor_C,FALSE,1200,0,360,DungeonRuntimeBase,/Game/Data/DA_TestDungeon.DA_TestDungeon,0.0,999999.0,1.0,1400,3000
+Portal_Ash_01,Portal_Ash_01,/Game/Blueprints/BP_PortalActor.BP_PortalActor_C,FALSE,1200,0,360,DungeonRuntimeBase,/Game/Data/DA_TestDungeon.DA_TestDungeon,0.0,999999.0,1.0,1400,3200
+Portal_Ruin_02,Portal_Ruin_02,/Game/Blueprints/BP_PortalActor.BP_PortalActor_C,FALSE,1200,0,420,DungeonRuntimeBase,/Game/Data/DA_TestDungeon.DA_TestDungeon,0.0,999999.0,1.0,1400,3400
+Portal_Abyss_03,Portal_Abyss_03,/Game/Blueprints/BP_PortalActor.BP_PortalActor_C,FALSE,1200,0,480,DungeonRuntimeBase,/Game/Data/DA_TestDungeon.DA_TestDungeon,0.0,999999.0,1.0,1800,3600

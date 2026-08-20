@@ -37,7 +37,7 @@ TArray<APageCharacter*> UWS_CombatDirector::GatherLivingPages() const
 		}
 
 		const UStatsComponent* Stats = Page->GetStats();
-		if (!Stats || Stats->IsDead() || Page->IsCaptive())
+		if (!Stats || Stats->IsDead() || Stats->IsDowned() || Stats->IsRecovering() || Page->IsCaptive())
 		{
 			continue;
 		}
@@ -573,6 +573,14 @@ bool UWS_CombatDirector::ExecutePendingFriendlyAction(USimCommandBuffer* Cmd, AP
 		UE_LOG(LogTemp, Warning, TEXT("[Combat] %s does not own active skill %s"), *GetNameSafe(ActivePage), *Request.ActionId.ToString());
 		return false;
 	}
+	if (!ActivePage->GetEquipment() || !ActivePage->GetEquipment()->MeetsEquipmentTagRequirements(
+		SkillDef->RequiredEquipmentTags,
+		SkillDef->bRequireAllEquipmentTags))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Combat] %s cannot use %s: required equipment tags are not equipped"),
+			*GetNameSafe(ActivePage), *Request.ActionId.ToString());
+		return false;
+	}
 
 	AActor* TargetActor = Request.TargetActor.Get();
 	APageCharacter* TargetPage = Cast<APageCharacter>(TargetActor);
@@ -626,7 +634,9 @@ bool UWS_CombatDirector::ExecutePendingFriendlyAction(USimCommandBuffer* Cmd, AP
 
 	const TWeakObjectPtr<APageCharacter> WeakAttacker = ActivePage;
 	const TWeakObjectPtr<AActor> WeakTarget = TargetActor;
-	const float Damage = SkillDef->CombatDamageAmount * ActivePage->GetSkillMultiplier(Request.ActionId);
+	const float Damage = SkillDef->CombatDamageAmount
+		* ActivePage->GetSkillMultiplier(Request.ActionId)
+		* ActivePage->GetSettlementCombatDamageMultiplier();
 	const FName SkillId = Request.ActionId;
 	const bool bCaptureOnDefeat = SkillDef->bCapturesTargetOnDefeat;
 
@@ -644,6 +654,7 @@ bool UWS_CombatDirector::ExecutePendingFriendlyAction(USimCommandBuffer* Cmd, AP
 			{
 				if (UStatsComponent* TargetStats = Target->GetStats())
 				{
+					const bool bWasDowned = TargetStats->IsDowned();
 					TargetStats->ApplyDamage(Damage);
 					Attacker->AddActiveSkillXP(SkillId, FMath::Max(5.f, Damage * 0.25f));
 
@@ -656,27 +667,32 @@ bool UWS_CombatDirector::ExecutePendingFriendlyAction(USimCommandBuffer* Cmd, AP
 						TargetStats->GetHealth(),
 						TargetStats->GetMaxHealth());
 
-					if (TargetStats->IsDead())
+					const bool bTargetDefeated = TargetStats->IsDowned() || TargetStats->IsDead();
+					if (bTargetDefeated)
 					{
 						UWorld* AttackerWorld = Attacker->GetWorld();
 						UWS_Population* Population = AttackerWorld
 							? AttackerWorld->GetSubsystem<UWS_Population>()
 							: nullptr;
-						const bool bCaptured = bCaptureOnDefeat && Target->IsHostile()
+						const bool bCaptured = !bWasDowned && bCaptureOnDefeat && Target->IsHostile()
 							&& Population && Population->CaptureHostilePage(Target);
 						if (bCaptured)
 						{
 							UE_LOG(LogTemp, Log, TEXT("[Combat] %s subdued %s"), *GetNameSafe(Attacker), *GetNameSafe(Target));
 						}
-						else
+						else if (TargetStats->IsDead())
 						{
 							UE_LOG(LogTemp, Warning, TEXT("[Combat] %s died"), *GetNameSafe(Target));
+						}
+						else
+						{
+							UE_LOG(LogTemp, Log, TEXT("[Combat] %s was downed"), *GetNameSafe(Target));
 						}
 						if (UWS_CombatDirector* Combat = AttackerWorld ? AttackerWorld->GetSubsystem<UWS_CombatDirector>() : nullptr)
 						{
 							Combat->NotifyCombatantDefeated(Target);
 						}
-						if (!bCaptured)
+						if (TargetStats->IsDead() && !bCaptured)
 						{
 							Target->Destroy();
 						}
@@ -738,6 +754,7 @@ bool UWS_CombatDirector::ExecuteEnemyTurnStep(USimCommandBuffer* Cmd, APageChara
 
 			if (UStatsComponent* TargetStats = Target->GetStats())
 			{
+				const bool bWasDowned = TargetStats->IsDowned();
 				TargetStats->ApplyDamage(Damage);
 
 				UE_LOG(LogTemp, Log,
@@ -748,14 +765,17 @@ bool UWS_CombatDirector::ExecuteEnemyTurnStep(USimCommandBuffer* Cmd, APageChara
 					TargetStats->GetHealth(),
 					TargetStats->GetMaxHealth());
 
-				if (TargetStats->IsDead())
+				if (TargetStats->IsDowned() || TargetStats->IsDead())
 				{
-					UE_LOG(LogTemp, Warning, TEXT("[Combat] %s died"), *GetNameSafe(Target));
+					UE_LOG(LogTemp, Warning, TEXT("[Combat] %s %s"), *GetNameSafe(Target), TargetStats->IsDead() ? TEXT("died") : TEXT("was downed"));
 					if (UWS_CombatDirector* Combat = Attacker->GetWorld()->GetSubsystem<UWS_CombatDirector>())
 					{
 						Combat->NotifyCombatantDefeated(Target);
 					}
-					Target->Destroy();
+					if (TargetStats->IsDead() && bWasDowned)
+					{
+						Target->Destroy();
+					}
 				}
 			}
 		});
@@ -1013,6 +1033,23 @@ bool UWS_CombatDirector::IsCombatActive() const
 	return ActiveEncounter.EncounterId != 0 && ActiveEncounter.Combatants.Num() > 0;
 }
 
+bool UWS_CombatDirector::IsCombatant(const APageCharacter* Page) const
+{
+	if (!Page || !IsCombatActive())
+	{
+		return false;
+	}
+
+	for (const TWeakObjectPtr<APageCharacter>& Combatant : ActiveEncounter.Combatants)
+	{
+		if (Combatant.Get() == Page)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 bool UWS_CombatDirector::IsPageTurnActive(const APageCharacter* Page) const
 {
 	return Page && GetActiveCombatant() == Page;
@@ -1090,7 +1127,8 @@ bool UWS_CombatDirector::NotifyPageMoved(APageCharacter* Page, float DistanceCm)
 
 bool UWS_CombatDirector::RequestEndTurn(APageCharacter* Page)
 {
-	if (!Page || !IsCombatActive() || !IsPageTurnActive(Page))
+	if (!Page || !IsCombatActive() || !IsPageTurnActive(Page)
+		|| (Page->GetStats() && (Page->GetStats()->IsDowned() || Page->GetStats()->IsRecovering())))
 	{
 		return false;
 	}
@@ -1102,7 +1140,8 @@ bool UWS_CombatDirector::RequestEndTurn(APageCharacter* Page)
 
 bool UWS_CombatDirector::RequestUseCombatAction(APageCharacter* RequestingPage, int32 SlotIndex, AActor* OptionalTarget)
 {
-	if (!RequestingPage || !IsCombatActive() || !RequestingPage->IsFriendly() || !IsPageTurnActive(RequestingPage))
+	if (!RequestingPage || !IsCombatActive() || !RequestingPage->IsFriendly() || !IsPageTurnActive(RequestingPage)
+		|| (RequestingPage->GetStats() && (RequestingPage->GetStats()->IsDowned() || RequestingPage->GetStats()->IsRecovering())))
 	{
 		return false;
 	}
@@ -1130,6 +1169,13 @@ bool UWS_CombatDirector::RequestUseCombatAction(APageCharacter* RequestingPage, 
 		if (!SkillDef || !SkillDef->bIsActiveCombatSkill || !RequestingPage->Skills || !RequestingPage->Skills->HasSkill(Slot.ActionId))
 		{
 			UE_LOG(LogTemp, Warning, TEXT("[Combat] Slot %d does not contain an owned active combat skill: %s"), SlotIndex, *Slot.ActionId.ToString());
+			return false;
+		}
+		if (!RequestingPage->GetEquipment() || !RequestingPage->GetEquipment()->MeetsEquipmentTagRequirements(
+			SkillDef->RequiredEquipmentTags,
+			SkillDef->bRequireAllEquipmentTags))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Combat] Slot %d has unmet equipment requirements for skill: %s"), SlotIndex, *Slot.ActionId.ToString());
 			return false;
 		}
 	}

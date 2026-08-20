@@ -1,0 +1,63 @@
+﻿Name,ItemId,DisplayName,Description,ItemType,StackLimit,UnitWeight,UnitVolume,Icon,WorldPickupClass,PlacedBlockClass,InventoryActions,UseEffect,UseEffectMagnitude,bConsumeOnUse,CompatibleEquipmentSlots,ToolInteractionTags,EquipmentTags,SettlementResourceId,bConvertOnReturn,bTracksQuality,SettlementMealUnits,DefaultMealQuality
+WoodBundle,WoodBundle,Wood Bundle,Raw wood carried out of a dungeon.,Material,100,0.2,1,,,,,None,0,TRUE,,,,Wood,TRUE,FALSE,0,0
+StoneChunk,StoneChunk,Stone Chunk,Raw stone carried out of a dungeon.,Material,100,0.35,0.8,,,,,None,0,TRUE,,,,Stone,TRUE,FALSE,0,0
+StoneBlock,StoneBlock,Stone Block,A test placeable stone block.,Material,100,1,1,,,/Game/Blueprints/BP_StoneChunkBlock.BP_StoneChunkBlock_C,(Place),None,0,TRUE,,,,,FALSE,FALSE,0,0
+Ration,Ration,Ration,A basic meal that restores a little health. Quality support is reserved for the meal system.,Consumable,20,0.25,0.4,,,,(Use),RestoreHealth,10,TRUE,,,,,FALSE,TRUE,1,1
+PortalShard,PortalShard,Portal Shard,A dungeon core shard that retains the attribute composition of its source dungeon until offered at an EP Altar.,CoreShard,1,2,3,,/Game/Blueprints/BP_WorldItemBlock.BP_WorldItemBlock_C,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+Medkit,Medkit,Field Medkit,A test consumable that restores health.,Consumable,10,0.4,0.7,,,,(Use),RestoreHealth,35,TRUE,,,,,FALSE,FALSE,0,0
+TestPickaxe,TestPickaxe,Test Pickaxe,A test mining tool for harvesting stone blocks.,Equipment,1,3,3,,,,(Equip),None,0,TRUE,(RightHand),(Tool.Pickaxe),(),,FALSE,FALSE,0,0
+TestKnife,TestKnife,Test Knife,A test one-handed item for the left hand slot.,Equipment,1,1,1,,,,(Equip),None,0,TRUE,(LeftHand),(),(Weapon.Melee),,FALSE,FALSE,0,0
+TestHelmet,TestHelmet,Test Helmet,A test head equipment item.,Equipment,1,2,2,,,,(Equip),None,0,TRUE,(Head),(),(),,FALSE,FALSE,0,0
+TestJacket,TestJacket,Test Jacket,A test upper-body equipment item.,Equipment,1,3,3,,,,(Equip),None,0,TRUE,(UpperBody),(),(),,FALSE,FALSE,0,0
+TestPants,TestPants,Test Pants,A test lower-body equipment item.,Equipment,1,2,2,,,,(Equip),None,0,TRUE,(LowerBody),(),(),,FALSE,FALSE,0,0
+TestBoots,TestBoots,Test Boots,A test footwear equipment item.,Equipment,1,1,1,,,,(Equip),None,0,TRUE,(Feet),(),(),,FALSE,FALSE,0,0
+SoilBlock,SoilBlock,Soil Block,Compacted soil used for primitive construction.,Material,100,0.2,0.5,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+Clay,Clay,Clay,Refined clay processed from soil for shaping and construction.,Material,100,0.2,0.4,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+PackedSoilBlock,PackedSoilBlock,Packed Soil Block,A dense block of compacted soil for durable early structures.,Material,50,0.5,0.6,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+EarthenWall,EarthenWall,Earthen Wall,An earthen wall construction kit awaiting a placed-block implementation.,Material,20,2,3,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+ClayLump,ClayLump,Clay Lump,A workable lump of clay for pottery and brickmaking.,Material,100,0.2,0.4,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+UnfiredBrick,UnfiredBrick,Unfired Brick,A shaped clay brick that must be fired before it becomes durable.,Material,100,0.3,0.35,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+WoodenAxe,WoodenAxe,Wooden Axe,A simple wooden axe reinforced with a chipped stone edge for basic woodcutting and close combat.,Equipment,1,0.9,1.2,,,,(Equip),None,0,FALSE,(RightHand),(Tool.Axe),(Weapon.Melee),,FALSE,FALSE,0,0
+WoodenPickaxe,WoodenPickaxe,Wooden Pickaxe,A crude wooden pickaxe with a stone tip for early mining and excavation.,Equipment,1,1.1,1.5,,,,(Equip),None,0,FALSE,(RightHand),(Tool.Pickaxe),(Weapon.Melee),,FALSE,FALSE,0,0
+WoodenHammer,WoodenHammer,Wooden Hammer,A wooden mallet for primitive construction work and emergency close combat.,Equipment,1,1.2,1.2,,,,(Equip),None,0,FALSE,(RightHand),(Tool.Hammer),(Weapon.Melee),,FALSE,FALSE,0,0
+ClayTablet,ClayTablet,Clay Tablet,A durable clay record used as an early research medium.,Blueprint,20,0.1,0.1,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+EarthenBedroll,EarthenBedroll,Earthen Bedroll,A crude bedroll for temporary settlement rest.,Material,10,1,3,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+Charcoal,Charcoal,Charcoal,Light porous fuel made by processing wood.,Material,100,0.15,0.55,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+Lime,Lime,Lime,Processed stone used in mortar and later refining recipes.,Material,100,0.25,0.3,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+WoodenPlank,WoodenPlank,Wooden Plank,A cut wooden plank for stronger buildings and furniture.,Material,100,0.2,0.8,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+Mortar,Mortar,Mortar,A lime and clay binding compound for masonry construction.,Material,100,0.35,0.3,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+StoneAxe,StoneAxe,Stone Axe,A primitive axe for wood harvesting and close combat.,Equipment,1,1.2,1.5,,,,(Equip),None,0,FALSE,(RightHand),(Tool.Axe),(Weapon.Melee),,FALSE,FALSE,0,0
+StonePickaxe,StonePickaxe,Stone Pickaxe,A primitive pickaxe for mining stone and soft ore.,Equipment,1,1.5,1.8,,,,(Equip),None,0,FALSE,(RightHand),(Tool.Pickaxe),(Weapon.Melee),,FALSE,FALSE,0,0
+StoneHammer,StoneHammer,Stone Hammer,A heavy hammer for early building and repair work.,Equipment,1,1.6,1.5,,,,(Equip),None,0,FALSE,(RightHand),(Tool.Hammer),(Weapon.Melee),,FALSE,FALSE,0,0
+WoodenStick,WoodenStick,Wooden Stick,A simple wooden club usable as an emergency weapon.,Equipment,1,0.5,0.7,,,,(Equip),None,0,FALSE,(RightHand),(),(Weapon.Melee),,FALSE,FALSE,0,0
+WoodenShield,WoodenShield,Wooden Shield,A broad wooden shield that provides basic protection.,Equipment,1,1.5,2,,,,(Equip),None,0,FALSE,(LeftHand),(),(Armor.Shield),,FALSE,FALSE,0,0
+Torch,Torch,Torch,A portable charcoal torch for dungeon illumination.,Equipment,1,0.25,0.4,,,,(Equip),None,0,FALSE,(RightHand),(Tool.Light),(),,FALSE,FALSE,0,0
+WoodenCrate,WoodenCrate,Wooden Crate,A portable wooden container for settlement storage expansion.,Material,10,1,2.5,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+CopperHammer,CopperHammer,Copper Hammer,A balanced copper hammer for stronger construction work and close combat.,Equipment,1,1.4,1.3,,,,(Equip),None,0,FALSE,(RightHand),(Tool.Hammer),(Weapon.Melee),,FALSE,FALSE,0,0
+CopperIngot,CopperIngot,Copper Ingot,A refined copper bar for conductive components and tools.,Material,100,0.8,0.27,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+GoldIngot,GoldIngot,Gold Ingot,A compact gold bar for precision contacts and research seals.,Material,100,0.4,0.06,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+CopperPlate,CopperPlate,Copper Plate,A shaped copper plate for fittings and machine components.,Material,100,0.8,0.27,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+CopperPickaxe,CopperPickaxe,Copper Pickaxe,A copper pickaxe for efficient extraction of metal-bearing stone.,Equipment,1,1.3,1.5,,,,(Equip),None,0,FALSE,(RightHand),(Tool.Pickaxe),(Weapon.Melee),,FALSE,FALSE,0,0
+CopperLantern,CopperLantern,Copper Lantern,A durable lantern for reliable dungeon illumination.,Equipment,1,0.7,0.7,,,,(Equip),None,0,FALSE,(RightHand),(Tool.Light),(),,FALSE,FALSE,0,0
+CopperLock,CopperLock,Copper Lock,A corrosion-resistant lock for storage and detention facilities.,Material,20,0.3,0.15,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+IronHammer,IronHammer,Iron Hammer,A heavy forged iron hammer for industrial construction and close combat.,Equipment,1,1.9,1.5,,,,(Equip),None,0,FALSE,(RightHand),(Tool.Hammer),(Weapon.Melee),,FALSE,FALSE,0,0
+IronIngot,IronIngot,Iron Ingot,A refined iron bar for tools and structural machinery.,Material,100,0.7,0.27,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+SteelIngot,SteelIngot,Steel Ingot,A hardened iron alloy for advanced tools and defense.,Material,100,0.75,0.27,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+IronPlate,IronPlate,Iron Plate,A shaped iron plate for reinforced construction.,Material,100,0.7,0.27,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+SteelBeam,SteelBeam,Steel Beam,A heavy structural beam for industrial settlement facilities.,Material,50,1.5,0.55,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+IronShield,IronShield,Iron Shield,A sturdy iron shield that offers reliable protection against sustained attacks.,Equipment,1,2.1,2.0,,,,(Equip),None,0,FALSE,(LeftHand),(),(Armor.Shield),,FALSE,FALSE,0,0
+IronAxe,IronAxe,Iron Axe,A forged iron axe for efficient woodcutting and dependable close combat.,Equipment,1,1.6,1.4,,,,(Equip),None,0,FALSE,(RightHand),(Tool.Axe),(Weapon.Melee),,FALSE,FALSE,0,0
+IronPickaxe,IronPickaxe,Iron Pickaxe,A durable pickaxe for hard ore and advanced mining work.,Equipment,1,1.7,1.7,,,,(Equip),None,0,FALSE,(RightHand),(Tool.Pickaxe),(Weapon.Melee),,FALSE,FALSE,0,0
+SteelAxe,SteelAxe,Steel Axe,A sharp steel axe for high-efficiency woodcutting and combat.,Equipment,1,1.5,1.4,,,,(Equip),None,0,FALSE,(RightHand),(Tool.Axe),(Weapon.Melee),,FALSE,FALSE,0,0
+SteelSword,SteelSword,Steel Sword,A balanced steel sword for serious dungeon combat.,Equipment,1,1.3,1.2,,,,(Equip),None,0,FALSE,(RightHand),(),(Weapon.Melee),,FALSE,FALSE,0,0
+SteelShield,SteelShield,Steel Shield,A reinforced shield for sustained combat against stronger foes.,Equipment,1,2.5,2.2,,,,(Equip),None,0,FALSE,(LeftHand),(),(Armor.Shield),,FALSE,FALSE,0,0
+ReinforcedArmor,ReinforcedArmor,Reinforced Armor,Iron and steel body armor for dangerous expeditions.,Equipment,1,4.5,4,,,,(Equip),None,0,FALSE,(UpperBody),(),(Armor.Heavy),,FALSE,FALSE,0,0
+IronStorageChest,IronStorageChest,Iron Storage Chest,A heavy secure chest for dense and valuable materials.,Material,5,3,4,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+RefinedFuel,RefinedFuel,Refined Fuel,Processed petroleum for generators and advanced equipment.,Material,100,0.15,0.55,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+Plastil,Plastil,Plastil,A durable petroleum-derived synthetic material.,Material,100,0.2,0.3,,,,,None,0,FALSE,,,,,FALSE,FALSE,0,0
+PortableDrill,PortableDrill,Portable Drill,A heavy hand-held mechanical drill for hard material extraction and industrial field work.,Equipment,1,4.0,3.0,,,,(Equip),None,0,FALSE,(RightHand),(Tool.Drill),(Weapon.Melee),,FALSE,FALSE,0,0
+PlastilArmor,PlastilArmor,Plastil Armor,Light sealed armor suited to hostile environments.,Equipment,1,2.5,3,,,,(Equip),None,0,FALSE,(UpperBody),(),(Armor.Light),,FALSE,FALSE,0,0
+SealedMask,SealedMask,Sealed Mask,A protective mask for hazardous dungeon atmospheres.,Equipment,1,0.6,0.7,,,,(Equip),None,0,FALSE,(Head),(),(Armor.Environmental),,FALSE,FALSE,0,0
+IronArmor,IronArmor,Iron Armor,Layered iron body armor for dangerous expeditions and settlement defense.,Equipment,1,3.7,3.4,,,,(Equip),None,0,FALSE,(UpperBody),(),(Armor.Heavy),,FALSE,FALSE,0,0
+WoodenArmor,WoodenArmor,Wooden Armor,Layered timber and leather body armor that provides early expedition protection.,Equipment,1,2.3,2.8,,,,(Equip),None,0,FALSE,(UpperBody),(),(Armor.Light),,FALSE,FALSE,0,0
+CopperArmor,CopperArmor,Copper Armor,Segmented copper body armor with balanced protection for mid-tier expeditions.,Equipment,1,3.1,3.0,,,,(Equip),None,0,FALSE,(UpperBody),(),(Armor.Medium),,FALSE,FALSE,0,0

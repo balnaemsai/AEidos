@@ -9,6 +9,7 @@
 #include "Engine/World.h"
 #include "Simulation/SimCommandBuffer.h"
 #include "World/Settlement/EidosAccessInterface.h"
+#include "World/Settlement/WS_Building.h"
 #include "World/Settlement/WS_Economy.h"
 #include "World/Settlement/WS_ItemStorage.h"
 #include "World/Settlement/WS_Population.h"
@@ -92,7 +93,8 @@ void UWS_Work::SimCommit_Implementation(USimCommandBuffer* CommandBuffer, float 
 						Assignment.InstanceId,
 						Assignment.WorkId,
 						Assignment.WorkLocation,
-						Assignment.Priority);
+						Assignment.Priority,
+						Assignment.bTeleportToWorkSite);
 				}
 
 				// Worker membership changes during planning, but the popup reads the
@@ -155,7 +157,7 @@ int32 UWS_Work::AddWorkRequest(const FWorkRequest& InReq)
 		return A.RequestId < B.RequestId;
 	});
 
-	UE_LOG(LogTemp, Log, TEXT("[Work] AddWorkRequest id=%d work=%s mode=%d prio=%d"), Req.RequestId, *Req.WorkId.ToString(), (int32)Req.Mode, Req.Priority);
+	UE_LOG(LogTemp, Log, TEXT("[Work] AddWorkRequest id=%d work=%s targetPage=%d mode=%d prio=%d"), Req.RequestId, *Req.WorkId.ToString(), Req.TargetPageId, (int32)Req.Mode, Req.Priority);
 	BroadcastRequestState(Req.RequestId, EWorkRequestLifecycleState::Queued);
 	return Req.RequestId;
 }
@@ -168,14 +170,40 @@ int32 UWS_Work::QueueWorkById(FName WorkId, int32 Quantity, int32 Priority)
 	}
 
 	const FWorkDefinitionRow* Def = FindDef(WorkId);
-	if (!Def || !CanReserveWorkCosts(Def->Costs, Quantity) || !CanStoreWorkRewards(Def->Rewards))
+	FVector WorkSiteLocation;
+	if (!Def || Def->bPageSpecificJob || !FindWorkSiteLocation(*Def, WorkSiteLocation) || !CanReserveWorkCosts(Def->Costs, Quantity) || !CanStoreWorkRewards(Def->Rewards))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Work] QueueWorkById rejected WorkId=%s: insufficient unreserved costs or storage"), *WorkId.ToString());
+		UE_LOG(LogTemp, Warning, TEXT("[Work] QueueWorkById rejected WorkId=%s: invalid shared work, missing work site, insufficient unreserved costs, or storage"), *WorkId.ToString());
 		return INDEX_NONE;
 	}
 
 	FWorkRequest Request;
 	Request.WorkId = WorkId;
+	Request.Mode = EWorkRequestMode::Count;
+	Request.RemainingCount = Quantity;
+	Request.Priority = Priority;
+	return AddWorkRequest(Request);
+}
+
+int32 UWS_Work::QueueWorkByIdForPage(FName WorkId, int32 TargetPageId, int32 Quantity, int32 Priority)
+{
+	if (WorkId.IsNone() || TargetPageId == INDEX_NONE || Quantity <= 0)
+	{
+		return INDEX_NONE;
+	}
+
+	const FWorkDefinitionRow* Def = FindDef(WorkId);
+	FVector WorkSiteLocation;
+	if (!Def || !Def->bPageSpecificJob || !PopulationObj || !IEidosPopulationAccess::Execute_GetPageActor(PopulationObj, TargetPageId)
+		|| !FindWorkSiteLocation(*Def, WorkSiteLocation) || !CanReserveWorkCosts(Def->Costs, Quantity) || !CanStoreWorkRewards(Def->Rewards))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Work] QueueWorkByIdForPage rejected WorkId=%s PageId=%d"), *WorkId.ToString(), TargetPageId);
+		return INDEX_NONE;
+	}
+
+	FWorkRequest Request;
+	Request.WorkId = WorkId;
+	Request.TargetPageId = TargetPageId;
 	Request.Mode = EWorkRequestMode::Count;
 	Request.RemainingCount = Quantity;
 	Request.Priority = Priority;
@@ -202,7 +230,10 @@ TArray<FWorkOrderView> UWS_Work::GetCraftableWorkOrders() const
 		View.DisplayName = Def.DisplayName;
 		View.Costs = Def.Costs;
 		View.Rewards = Def.Rewards;
-		View.bCanQueue = CanReserveWorkCosts(Def.Costs, 1) && CanStoreWorkRewards(Def.Rewards);
+		View.RequiredSiteTag = Def.SiteTag;
+		FVector WorkSiteLocation;
+		View.bHasRequiredSite = FindWorkSiteLocation(Def, WorkSiteLocation);
+		View.bCanQueue = View.bHasRequiredSite && CanReserveWorkCosts(Def.Costs, 1) && CanStoreWorkRewards(Def.Rewards);
 		for (const FWorkRequest& Request : Queue)
 		{
 			if (Request.WorkId == Def.WorkId)
@@ -242,7 +273,10 @@ bool UWS_Work::GetWorkOrderView(FName WorkId, FWorkOrderView& OutView) const
 	OutView.DisplayName = Def->DisplayName;
 	OutView.Costs = Def->Costs;
 	OutView.Rewards = Def->Rewards;
-	OutView.bCanQueue = CanReserveWorkCosts(Def->Costs, 1) && CanStoreWorkRewards(Def->Rewards);
+	OutView.RequiredSiteTag = Def->SiteTag;
+	FVector WorkSiteLocation;
+	OutView.bHasRequiredSite = FindWorkSiteLocation(*Def, WorkSiteLocation);
+	OutView.bCanQueue = OutView.bHasRequiredSite && CanReserveWorkCosts(Def->Costs, 1) && CanStoreWorkRewards(Def->Rewards);
 	for (const FWorkRequest& Request : Queue)
 	{
 		if (Request.WorkId == Def->WorkId)
@@ -516,14 +550,54 @@ void UWS_Work::TrySpawnInstancesFromQueue()
 			continue;
 		}
 
+		FVector WorkSiteLocation;
+		if (!FindWorkSiteLocation(*Def, WorkSiteLocation))
+		{
+			// Keep the order intact and reserve no inputs until the required facility exists.
+			continue;
+		}
+
+		if (Def->SiteTag == FName("Build"))
+		{
+			UWS_Building* BuildingSubsystem = GetWorld() ? GetWorld()->GetSubsystem<UWS_Building>() : nullptr;
+			if (!BuildingSubsystem || !BuildingSubsystem->FindConstructionWorkLocationForRequest(Req.RequestId, WorkSiteLocation))
+			{
+				// A build request is only executable while its construction site exists.
+				continue;
+			}
+		}
+
+		if (Def->bPageSpecificJob)
+		{
+			if (Req.TargetPageId == INDEX_NONE || !PopulationObj || !IEidosPopulationAccess::Execute_GetPageActor(PopulationObj, Req.TargetPageId))
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[Work] Removing Page-specific request id=%d work=%s: target Page is missing"), Req.RequestId, *Req.WorkId.ToString());
+				if (Req.Mode == EWorkRequestMode::Count)
+				{
+					Req.RemainingCount = 0;
+				}
+				BroadcastRequestState(Req.RequestId, EWorkRequestLifecycleState::Failed);
+				continue;
+			}
+
+			// Do not consume inputs until the target Page can actually begin the Job.
+			if (!IEidosPopulationAccess::Execute_IsPageAvailable(PopulationObj, Req.TargetPageId))
+			{
+				continue;
+			}
+		}
+
 		FWorkInstance Inst;
 		Inst.InstanceId = NextInstanceId++;
 		Inst.RequestId = Req.RequestId;
 		Inst.WorkId = Req.WorkId;
+		Inst.Priority = Req.Priority;
+		Inst.TargetPageId = Def->bPageSpecificJob ? Req.TargetPageId : INDEX_NONE;
 		Inst.TotalWork = Def->TotalWork;
 		Inst.Progress = 0.f;
-		Inst.MaxWorkers = Def->MaxWorkers;
-		Inst.SiteLocation = ResolveSiteLocationForWork(*Def);
+		Inst.MaxWorkers = Def->bPageSpecificJob ? 1 : Def->MaxWorkers;
+		Inst.SiteLocation = WorkSiteLocation;
+		Inst.bTeleportWorkersToSite = Def->SiteTag == FName("Build") || DoesWorkUseCompletedFacility(*Def);
 		PlannedNewInstances.Add(Inst);
 
 		if (Req.Mode == EWorkRequestMode::Count)
@@ -544,57 +618,95 @@ void UWS_Work::UpdateAssignments(float FixedDeltaSeconds)
 
 	const TArray<int32> PageIds = IEidosPopulationAccess::Execute_GetAllPageIds(PopulationObj);
 	TSet<int32> ReservedPageIds;
-	for (const FWorkInstance& Inst : ActiveInstances)
+	for (FWorkInstance& Inst : ActiveInstances)
 	{
-		for (int32 WorkerId : Inst.Workers)
+		for (int32 WorkerIndex = Inst.Workers.Num() - 1; WorkerIndex >= 0; --WorkerIndex)
 		{
-			ReservedPageIds.Add(WorkerId);
+			const int32 WorkerId = Inst.Workers[WorkerIndex];
+			if (IEidosPopulationAccess::Execute_IsPageAssignedToWork(PopulationObj, WorkerId, Inst.InstanceId))
+			{
+				ReservedPageIds.Add(WorkerId);
+			}
+			else
+			{
+				Inst.Workers.RemoveAtSwap(WorkerIndex);
+				IEidosPopulationAccess::Execute_ClearPageWorkAssignment(PopulationObj, WorkerId, Inst.InstanceId);
+			}
 		}
 	}
 
-	for (FWorkInstance& Inst : ActiveInstances)
+	// Pick the best Page/instance pair globally. This makes a Page's category
+	// priorities meaningful even when multiple kinds of work are available.
+	while (true)
 	{
-		const FWorkDefinitionRow* Def = FindDef(Inst.WorkId);
-		if (!Def)
-		{
-			continue;
-		}
+		int32 BestInstanceIndex = INDEX_NONE;
+		int32 BestPageId = INDEX_NONE;
+		int32 BestPagePriority = INDEX_NONE;
+		int32 BestRequestPriority = TNumericLimits<int32>::Lowest();
 
-		while (Inst.Workers.Num() < Inst.MaxWorkers)
+		for (int32 InstanceIndex = 0; InstanceIndex < ActiveInstances.Num(); ++InstanceIndex)
 		{
-			int32 SelectedPageId = INDEX_NONE;
-
-			for (int32 PageId : PageIds)
+			FWorkInstance& Inst = ActiveInstances[InstanceIndex];
+			if (Inst.Workers.Num() >= Inst.MaxWorkers)
 			{
-				if (ReservedPageIds.Contains(PageId))
+				continue;
+			}
+
+			const FWorkDefinitionRow* Def = FindDef(Inst.WorkId);
+			if (!Def)
+			{
+				continue;
+			}
+
+			const TArray<int32> CandidateIds = Def->bPageSpecificJob
+				? TArray<int32>{ Inst.TargetPageId }
+				: PageIds;
+			for (const int32 PageId : CandidateIds)
+			{
+				if (PageId == INDEX_NONE || ReservedPageIds.Contains(PageId)
+					|| !IEidosPopulationAccess::Execute_IsPageAvailable(PopulationObj, PageId))
 				{
 					continue;
 				}
-				if (!IEidosPopulationAccess::Execute_IsPageAvailable(PopulationObj, PageId))
+
+				const int32 PagePriority = IEidosPopulationAccess::Execute_GetPageWorkPriority(PopulationObj, PageId, Def->WorkCategory);
+				if (PagePriority <= 0)
 				{
 					continue;
 				}
 
-				SelectedPageId = PageId;
-				break;
+				const bool bBetter = BestInstanceIndex == INDEX_NONE
+					|| PagePriority > BestPagePriority
+					|| (PagePriority == BestPagePriority && Inst.Priority > BestRequestPriority)
+					|| (PagePriority == BestPagePriority && Inst.Priority == BestRequestPriority && Inst.InstanceId < ActiveInstances[BestInstanceIndex].InstanceId)
+					|| (PagePriority == BestPagePriority && Inst.Priority == BestRequestPriority && Inst.InstanceId == ActiveInstances[BestInstanceIndex].InstanceId && PageId < BestPageId);
+				if (bBetter)
+				{
+					BestInstanceIndex = InstanceIndex;
+					BestPageId = PageId;
+					BestPagePriority = PagePriority;
+					BestRequestPriority = Inst.Priority;
+				}
 			}
-
-			if (SelectedPageId == INDEX_NONE)
-			{
-				break;
-			}
-
-			Inst.Workers.Add(SelectedPageId);
-			ReservedPageIds.Add(SelectedPageId);
-
-			FPlannedPageAssignment Assignment;
-			Assignment.PageId = SelectedPageId;
-			Assignment.InstanceId = Inst.InstanceId;
-			Assignment.WorkId = Inst.WorkId;
-			Assignment.WorkLocation = Inst.SiteLocation;
-			Assignment.Priority = 0;
-			PlannedPageAssignments.Add(Assignment);
 		}
+
+		if (BestInstanceIndex == INDEX_NONE)
+		{
+			break;
+		}
+
+		FWorkInstance& BestInstance = ActiveInstances[BestInstanceIndex];
+		BestInstance.Workers.Add(BestPageId);
+		ReservedPageIds.Add(BestPageId);
+
+		FPlannedPageAssignment Assignment;
+		Assignment.PageId = BestPageId;
+		Assignment.InstanceId = BestInstance.InstanceId;
+		Assignment.WorkId = BestInstance.WorkId;
+		Assignment.WorkLocation = BestInstance.SiteLocation;
+		Assignment.bTeleportToWorkSite = BestInstance.bTeleportWorkersToSite;
+		Assignment.Priority = BestInstance.Priority;
+		PlannedPageAssignments.Add(Assignment);
 	}
 }
 
@@ -622,8 +734,12 @@ void UWS_Work::ProgressInstances(float FixedDeltaSeconds)
 		{
 			for (int32 PageId : Inst.Workers)
 			{
-				const float Multiplier = IEidosPopulationAccess::Execute_ComputeWorkRateMultiplier(PopulationObj, PageId, Inst.WorkId);
+				const float Multiplier = IEidosPopulationAccess::Execute_ComputeWorkRateMultiplier(PopulationObj, PageId, Def->PrimarySkillId);
 				TotalRateThisTick += Def->BaseWorkRate * Multiplier;
+				if (!Def->PrimarySkillId.IsNone() && Def->XPPerSecond > 0.f)
+				{
+					IEidosPopulationAccess::Execute_AwardWorkSkillXP(PopulationObj, PageId, Def->PrimarySkillId, Def->XPPerSecond, FixedDeltaSeconds, Def->XPFactor);
+				}
 			}
 		}
 
@@ -747,32 +863,66 @@ bool UWS_Work::CancelWorkRequest(int32 RequestId)
 	return true;
 }
 
-FVector UWS_Work::ResolveSiteLocationForWork(const FWorkDefinitionRow& Def) const
+bool UWS_Work::InterruptPageWork(int32 PageId)
+{
+	if (PageId == INDEX_NONE)
+	{
+		return false;
+	}
+
+	bool bInterrupted = false;
+	TSet<int32> ChangedRequestIds;
+	for (FWorkInstance& Instance : ActiveInstances)
+	{
+		const int32 RemovedWorkers = Instance.Workers.Remove(PageId);
+		if (RemovedWorkers <= 0)
+		{
+			continue;
+		}
+
+		bInterrupted = true;
+		ChangedRequestIds.Add(Instance.RequestId);
+		if (PopulationObj)
+		{
+			IEidosPopulationAccess::Execute_ClearPageWorkAssignment(PopulationObj, PageId, Instance.InstanceId);
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("[Work] Page=%d interrupted Instance=%d Work=%s"),
+			PageId, Instance.InstanceId, *Instance.WorkId.ToString());
+	}
+
+	for (int32 RequestId : ChangedRequestIds)
+	{
+		// Worker membership is already authoritative at this point, so immediately
+		// refresh task/order panels rather than waiting for a later fixed tick.
+		BroadcastRequestState(RequestId, EWorkRequestLifecycleState::Active);
+	}
+
+	return bInterrupted;
+}
+
+bool UWS_Work::FindWorkSiteLocation(const FWorkDefinitionRow& Def, FVector& OutLocation) const
 {
 	const FVector SettlementOrigin = FVector::ZeroVector;
+	OutLocation = SettlementOrigin;
 
-	if (Def.SiteTag.IsNone() || Def.SiteTag == FName("None"))
+	// World tasks are not tied to a building. Their location remains useful for
+	// bookkeeping, but workers must never be teleported to the settlement origin.
+	if (!DoesWorkUseCompletedFacility(Def))
 	{
-		return SettlementOrigin;
-	}
-	if (Def.SiteTag == FName("Lumberyard"))
-	{
-		return SettlementOrigin + FVector(500.f, 0.f, 0.f);
-	}
-	if (Def.SiteTag == FName("Quarry"))
-	{
-		return SettlementOrigin + FVector(0.f, 500.f, 0.f);
-	}
-	if (Def.SiteTag == FName("Forge"))
-	{
-		return SettlementOrigin + FVector(-500.f, 0.f, 0.f);
-	}
-	if (Def.SiteTag == FName("Chapel"))
-	{
-		return SettlementOrigin + FVector(0.f, -500.f, 0.f);
+		return true;
 	}
 
-	return SettlementOrigin;
+	const UWS_Building* BuildingSubsystem = GetWorld() ? GetWorld()->GetSubsystem<UWS_Building>() : nullptr;
+	return BuildingSubsystem && BuildingSubsystem->FindCompletedWorkSite(Def.SiteTag, OutLocation);
+}
+
+bool UWS_Work::DoesWorkUseCompletedFacility(const FWorkDefinitionRow& Def) const
+{
+	return !Def.SiteTag.IsNone()
+		&& Def.SiteTag != FName("None")
+		&& Def.SiteTag != FName("Build")
+		&& Def.SiteTag != FName("Gather");
 }
 
 void UWS_Work::WriteToSnapshot_Implementation(FEidosWorldSnapshot& OutSnapshot) const
@@ -814,7 +964,8 @@ void UWS_Work::ApplySnapshot_Implementation(const FEidosWorldSnapshot& Snapshot)
 					Instance.InstanceId,
 					Instance.WorkId,
 					Instance.SiteLocation,
-					0);
+					0,
+					Instance.bTeleportWorkersToSite);
 			}
 		}
 	}

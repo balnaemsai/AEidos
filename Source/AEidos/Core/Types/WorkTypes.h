@@ -31,6 +31,29 @@ struct FWorkCost
 	UPROPERTY(EditAnywhere, BlueprintReadWrite) int32 Amount = 0;
 };
 
+/** Broad work groups that Pages can prioritize independently. */
+UENUM(BlueprintType)
+enum class EWorkCategory : uint8
+{
+	Craft,
+	Gather,
+	Construction,
+	Research
+};
+
+/** A Page's preference for one work group. Zero disables automatic assignment. */
+USTRUCT(BlueprintType)
+struct FPageWorkPriority
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	EWorkCategory WorkCategory = EWorkCategory::Craft;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(ClampMin="0", ClampMax="5"))
+	int32 Priority = 3;
+};
+
 USTRUCT(BlueprintType)
 struct FWorkReward
 {
@@ -61,6 +84,9 @@ struct FWorkRequest
 
 	// 우선순위(큐 내부 정렬에 사용)
 	UPROPERTY(BlueprintReadWrite) int32 Priority = 0;
+
+	/** Page 고유 Job일 때 이 요청을 수행해야 하는 Page. 공유 Job에서는 INDEX_NONE이다. */
+	UPROPERTY(BlueprintReadWrite) int32 TargetPageId = INDEX_NONE;
 };
 
 USTRUCT(BlueprintType)
@@ -72,6 +98,12 @@ struct FWorkInstance
 	UPROPERTY(BlueprintReadWrite) int32 RequestId = 0;
 	UPROPERTY(BlueprintReadWrite) FName WorkId;
 
+	/** Request priority used as a tie breaker after the Page's category preference. */
+	UPROPERTY(BlueprintReadWrite) int32 Priority = 0;
+
+	/** Page 고유 Job의 소유 Page. 공유 Job에서는 INDEX_NONE이다. */
+	UPROPERTY(BlueprintReadWrite) int32 TargetPageId = INDEX_NONE;
+
 	UPROPERTY(BlueprintReadWrite) float TotalWork = 0.f;
 	UPROPERTY(BlueprintReadWrite) float Progress = 0.f;
 
@@ -79,6 +111,9 @@ struct FWorkInstance
 
 	// 작업장(간단 MVP: 위치만)
 	UPROPERTY(BlueprintReadWrite) FVector SiteLocation = FVector::ZeroVector;
+
+	/** Only completed-building work sites relocate assigned Pages. World work stays at its existing location. */
+	UPROPERTY(BlueprintReadWrite) bool bTeleportWorkersToSite = false;
 
 	// 참여자(페이지 ID)
 	UPROPERTY(BlueprintReadWrite) TArray<int32> Workers;
@@ -100,6 +135,9 @@ struct FWorkOrderView
 	UPROPERTY(BlueprintReadOnly) int32 ActiveMaxWorkers = 0;
 	UPROPERTY(BlueprintReadOnly) float ActiveProgress = 0.f;
 	UPROPERTY(BlueprintReadOnly) float ActiveTotalWork = 0.f;
+	/** A named completed building facility required before this order can begin. */
+	UPROPERTY(BlueprintReadOnly) FName RequiredSiteTag;
+	UPROPERTY(BlueprintReadOnly) bool bHasRequiredSite = true;
 	UPROPERTY(BlueprintReadOnly) bool bCanQueue = false;
 	/** The most recent outstanding player request for this recipe, whether queued or active. */
 	UPROPERTY(BlueprintReadOnly) int32 CancelRequestId = INDEX_NONE;

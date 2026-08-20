@@ -71,10 +71,19 @@ public:
 	UFUNCTION(BlueprintCallable)
 	const TArray<FConstructionSiteState>& GetConstructionSites() const { return ConstructionSites; }
 
+	/** Resolves the fixed, collision-free worker position for a pending construction request. */
+	bool FindConstructionWorkLocationForRequest(int32 WorkRequestId, FVector& OutLocation) const;
+
 	void GetCompletedBuildingIds(TArray<FName>& OutBuildingIds) const;
 
 	/** Total Page capacity supplied by completed buildings only. */
 	int32 GetCompletedPageCapacity() const;
+
+	/** Total captive capacity supplied by completed detention buildings only. */
+	int32 GetCompletedCaptiveCapacity() const;
+
+	/** Finds a completed building that provides the requested manual-work facility tag. */
+	bool FindCompletedWorkSite(FName WorkSiteTag, FVector& OutLocation) const;
 
 	UFUNCTION(BlueprintCallable)
 	void LoadBuildingDefs();
@@ -86,6 +95,8 @@ private:
 	FConstructionSiteState* FindConstructionSiteById(int32 SiteId);
 	FConstructionSiteState* FindConstructionSiteByRequestId(int32 WorkRequestId);
 	bool IntersectsAnyPlacedOrConstruction(const FBuildingDefinitionRow& Def, FVector Location) const;
+	bool FindConstructionWorkLocation(const FBuildingDefinitionRow& Def, FVector Location, float YawDeg, FVector& OutLocation) const;
+	bool IsConstructionWorkLocationFree(const FVector& WorkLocation) const;
 	int32 CreateConstructionSite(FName BuildingId, FVector Location, float YawDeg, int32 WorkRequestId);
 	void FinalizeBuilding(int32 SiteId);
 	void CleanupInvalidActors();
